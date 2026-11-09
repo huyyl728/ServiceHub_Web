@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), amount INTEGER NOT NULL,
  kind TEXT NOT NULL, description TEXT NOT NULL, reference TEXT DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_bank_qr_credit
+ ON wallet_transactions(reference) WHERE kind='bank_qr_topup';
 CREATE TABLE IF NOT EXISTS membership_programs (
  id INTEGER PRIMARY KEY AUTOINCREMENT, business_id INTEGER REFERENCES businesses(id) ON DELETE CASCADE,
  name TEXT NOT NULL, description TEXT DEFAULT '', points_per_currency INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1, benefits TEXT NOT NULL DEFAULT '', auto_approve_bookings INTEGER NOT NULL DEFAULT 0
@@ -75,7 +77,7 @@ CREATE INDEX IF NOT EXISTS idx_wallet_transfers_recipient ON wallet_transfers(re
 CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs(actor_id, created_at DESC);
 
 -- Bank-transfer QR requests: QR generation does not prove that funds arrived.
--- This table is separate from wallet_transactions; confirmation does not credit demo wallets.
+-- Verified admin confirmation credits the wallet once, with a matching ledger entry.
 CREATE TABLE IF NOT EXISTS bank_qr_requests (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  user_id INTEGER NOT NULL REFERENCES users(id),

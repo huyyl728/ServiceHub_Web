@@ -219,6 +219,6 @@ Bản này kế thừa Sprint 1–3 và tính năng tư vấn ba câu hỏi. Cá
 
 - Thay giao diện **chuyển ví giữa các tài khoản** bằng **tạo VietQR số tiền + nội dung chuyển khoản** trong trang Tài khoản.
 - Tài khoản nhận cấu hình cục bộ qua các biến `SERVICEHUB_BANK_*` (xem `.env.example`), mặc định **tắt**. Không có số tài khoản thật trong mã nguồn.
-- Hệ thống ghi nhận yêu cầu `pending` và cho admin đối soát thủ công; **không tự xác nhận giao dịch, không tự cộng ví demo**.
+- Hệ thống ghi nhận yêu cầu `pending` và cho admin đối soát thủ công; **chỉ cộng ví sau khi admin xác nhận đối soát**, kèm lịch sử giao dịch và chống cộng trùng. Khi khởi động lại, server tự bổ sung các yêu cầu đã xác nhận ở phiên bản cũ nhưng chưa được cộng ví.
 - API ví demo cũ vẫn được giữ để đảm bảo khả năng tương thích với các bài kiểm thử cũ.
 - Đọc kỹ **`BANK_QR_GUIDE.md`** trước khi bật vì QR có thể được dùng để chuyển tiền thật.

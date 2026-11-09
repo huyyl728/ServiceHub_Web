@@ -5,7 +5,7 @@
 - **Mã VietQR chứa thông tin nhận chuyển khoản thật** khi người quản trị nhập tài khoản ngân hàng hợp lệ. Quét QR có thể dẫn tới **giao dịch tiền thật**. Chỉ thử tạo/hiển thị QR bằng dữ liệu minh họa trong bài tập, không cần chuyển tiền thật.
 - QR chỉ chứa ngân hàng nhận, số tài khoản, số tiền và nội dung chuyển khoản. **Không có chức năng tự nhận biết khoản tiền đã đến.** Không đánh dấu đã thanh toán chỉ vì người dùng bấm nút, gửi ảnh chụp màn hình hoặc tạo QR.
 - Admin chỉ đánh dấu **Đã xác nhận** sau khi tự đối chiếu **sao kê ngân hàng thực tế**, kiểm tra tài khoản nhận, số tiền, nội dung chuyển khoản và mã giao dịch; một mã giao dịch không được dùng để xác nhận hai yêu cầu.
-- Việc xác nhận QR **không tăng số dư ví demo**, không tạo thanh toán thành công trong bảng `payments` và không hoàn tất lịch đặt. Các tính năng ví/đặt lịch demo hiện có vẫn độc lập.
+- Sau khi admin đối soát và xác nhận, hệ thống **cộng số tiền vào ví ServiceHub đúng một lần** và ghi lịch sử giao dịch. Việc này không tạo thanh toán trong bảng `payments` và không hoàn tất lịch đặt.
 - Ảnh QR sử dụng Quick Link của `img.vietqr.io` (bên thứ ba). Khi trình duyệt tải ảnh, thông tin ngân hàng nhận, số tiền và nội dung chuyển khoản được gửi đến dịch vụ này qua URL. Nếu bạn không đồng ý điều đó, **không bật VietQR**.
 - Không yêu cầu số thẻ, mật khẩu, mã OTP hoặc thông tin đăng nhập ngân hàng. Không công khai tệp `.env`.
 - Đây là bản demo chức năng và đối soát thủ công, **không phải cổng thanh toán production**. Đối với triển khai thật, cần xác minh chủ tài khoản, quy trình xử lý hoàn tiền, bảo mật tài khoản, phân quyền và tích hợp đối soát ngân hàng đáng tin cậy.
@@ -61,7 +61,7 @@ Truy cập `http://127.0.0.1:8001` nếu `.env` có `SERVICEHUB_HOST_PORT=8001`.
 
 **Admin:** đăng nhập → **Quản trị** → **Đối soát VietQR** → chỉ sau khi kiểm tra giao dịch thật trên sao kê, chọn **Đã đối soát** và nhập mã giao dịch từ ngân hàng; nếu không khớp, chọn **Từ chối** và nhập lý do. Hệ thống lưu nhật ký và gửi thông báo cho khách.
 
-**Chú ý:** Kể cả khi admin đánh dấu `confirmed`, **ví demo và lịch đặt không thay đổi**. Điều này ngăn việc nhầm lẫn giữa số dư mô phỏng và giao dịch ngân hàng.
+**Chú ý:** Trạng thái `confirmed`, số dư và lịch sử giao dịch được cập nhật trong cùng một transaction. Gửi lại yêu cầu xác nhận không cộng tiền lần hai; yêu cầu bị từ chối không cộng tiền. Khi khởi động, server tự bổ sung tiền cho các yêu cầu `confirmed` từ phiên bản cũ còn thiếu giao dịch `bank_qr_topup`. Trong Tài khoản, bấm **Làm mới số dư** để cập nhật ví và lịch sử.
 
 ## 5. API và bảng dữ liệu
 
@@ -84,7 +84,7 @@ Chạy:
 python3 scripts/run_checks.py
 ```
 
-Script dùng cơ sở dữ liệu SQLite tạm và tài khoản ngân hàng **giả định** để kiểm tra logic tạo QR, phân quyền, xác thực thủ công, chống trùng mã giao dịch, không tự cộng tiền vào ví. **Không gửi lệnh chuyển khoản đến ngân hàng.**
+Script dùng cơ sở dữ liệu SQLite tạm và tài khoản ngân hàng **giả định** để kiểm tra logic tạo QR, phân quyền, xác thực thủ công, chống trùng mã giao dịch, chỉ cộng ví sau đối soát và bổ sung giao dịch cũ không bị trùng. **Không gửi lệnh chuyển khoản đến ngân hàng.**
 
 ## 7. Các giới hạn trước khi triển khai công khai
 

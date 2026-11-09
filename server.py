@@ -112,6 +112,40 @@ def notify(conn, user_id, title, message):
                  (user_id, title[:120], message[:500]))
 
 
+def credit_bank_qr(conn, request):
+    """Credit a confirmed request once, inside the caller's IMMEDIATE transaction."""
+    if request['status'] != 'confirmed':
+        return False
+    if conn.execute("SELECT 1 FROM wallet_transactions WHERE kind='bank_qr_topup' AND reference=?",
+                    (request['reference'],)).fetchone():
+        return False
+    updated = conn.execute('UPDATE wallets SET balance=balance+? WHERE user_id=?',
+                           (request['amount'], request['user_id']))
+    if updated.rowcount != 1:
+        raise APIError(404, 'WALLET_NOT_FOUND', 'Không tìm thấy ví người dùng.')
+    conn.execute("INSERT INTO wallet_transactions(user_id,amount,kind,description,reference) VALUES(?,?,'bank_qr_topup','Nạp ví qua chuyển khoản đã đối soát',?)",
+                 (request['user_id'], request['amount'], request['reference']))
+    audit(conn, request['user_id'], 'wallet_bank_qr_topup', 'bank_qr', request['id'],
+          'reference='+request['reference']+'; amount='+str(request['amount']))
+    notify(conn, request['user_id'], 'Đã cộng tiền vào ví',
+           f'Yêu cầu {request["reference"]} đã đối soát; đã cộng {request["amount"]:,} VNĐ vào ví ServiceHub.')
+    return True
+
+
+def repair_bank_qr_credits():
+    """Backfill confirmations from older versions; safe to run on every startup."""
+    with connect() as c:
+        c.execute('BEGIN IMMEDIATE')
+        rows = c.execute("""SELECT r.* FROM bank_qr_requests r
+            WHERE r.status='confirmed' AND NOT EXISTS (
+                SELECT 1 FROM wallet_transactions t
+                WHERE t.kind='bank_qr_topup' AND t.reference=r.reference)
+            ORDER BY r.id""").fetchall()
+        for row in rows:
+            credit_bank_qr(c, row)
+        return len(rows)
+
+
 def seed():
     with connect() as c:
         c.executescript(SCHEMA)
@@ -184,6 +218,8 @@ def seed():
                     c.execute('INSERT INTO services(business_id,name,description,price,duration_minutes,category) VALUES(?,?,?,?,?,?)',
                               (bid, 'Trải nghiệm cà phê (Demo)', 'Đặt chỗ trải nghiệm cà phê minh họa, không phải thực đơn thật.', 45000, 60, 'Đồ uống'))
             c.commit()
+
+    repair_bank_qr_credits()
 
 class APIError(Exception):
     def __init__(self, status, code, message): self.status,self.code,self.message=status,code,message
@@ -574,7 +610,7 @@ class Handler(BaseHTTPRequestHandler):
                 balance=c.execute('SELECT balance FROM wallets WHERE user_id=?',(user['id'],)).fetchone()['balance']
                 c.commit()
             return self.send_json(200,{'success':True,'message':'Đã chuyển số dư demo trong ServiceHub. Đây không phải chuyển khoản ngân hàng.','data':{'transfer_id':transfer_id,'balance':balance,'recipient':{'name':recipient['name'],'email':recipient['email']},'amount':amount,'duplicate':False}})
-        # VietQR: create *payment instructions*, not a payment or demo-wallet credit.
+        # Creating a QR never credits a wallet; verified admin confirmation does.
         if method=='GET' and p=='/api/bank-qr/config':
             data={'configured':bool(BANK_QR_CONFIGURED), 'issues':BANK_QR_ISSUES,
                   'bank_bin':BANK_BIN if BANK_QR_CONFIGURED else '',
@@ -643,11 +679,13 @@ class Handler(BaseHTTPRequestHandler):
                               ('confirmed' if action=='confirm' else 'rejected',bank_reference or None,reason,user['id'],now_iso(),rid))
                 except sqlite3.IntegrityError:
                     raise APIError(409,'BANK_TRANSACTION_DUPLICATE','Mã giao dịch ngân hàng đã được dùng cho yêu cầu khác.')
+                if action=='confirm':
+                    credit_bank_qr(c,c.execute('SELECT * FROM bank_qr_requests WHERE id=?',(rid,)).fetchone())
                 audit(c,user['id'],'bank_qr_'+('confirmed' if action=='confirm' else 'rejected'),'bank_qr',rid,'reference='+row['reference'])
-                notify(c,row['user_id'],'Chuyển khoản '+('đã đối soát' if action=='confirm' else 'cần kiểm tra lại'),
-                       f'Yêu cầu {row["reference"]} '+('đã được admin ghi nhận sau khi đối chiếu sao kê.' if action=='confirm' else 'bị từ chối: '+reason))
+                if action=='reject':
+                    notify(c,row['user_id'],'Chuyển khoản cần kiểm tra lại',f'Yêu cầu {row["reference"]} bị từ chối: '+reason)
                 c.commit()
-            return self.send_json(200,{'success':True,'message':'Đã cập nhật trạng thái sau khi kiểm tra. Số dư ví demo không đổi.'})
+            return self.send_json(200,{'success':True,'message':'Đã đối soát và cộng tiền vào ví ServiceHub.' if action=='confirm' else 'Đã từ chối yêu cầu chuyển khoản. Số dư ví không đổi.'})
         if method=='GET' and p=='/api/activity/me':
             with connect() as c:
                 rows=[dict(r) for r in c.execute('SELECT action,entity_type,entity_id,details,created_at FROM audit_logs WHERE actor_id=? ORDER BY id DESC LIMIT 100',(user['id'],))]
