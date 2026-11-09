@@ -1,0 +1,8 @@
+.git
+__pycache__
+*.pyc
+servicehub.db
+static/uploads/*
+!static/uploads/.gitkeep
+.env
+.DS_Store

@@ -1,0 +1,20 @@
+services:
+  servicehub:
+    build: .
+    ports:
+      - "${SERVICEHUB_HOST_PORT:-8000}:8000"
+    environment:
+      SERVICEHUB_HOST: 0.0.0.0
+      SERVICEHUB_PORT: 8000
+      SERVICEHUB_DB_PATH: /data/servicehub.db
+      SERVICEHUB_ENABLE_BANK_QR: ${SERVICEHUB_ENABLE_BANK_QR:-0}
+      SERVICEHUB_BANK_BIN: ${SERVICEHUB_BANK_BIN:-}
+      SERVICEHUB_BANK_ACCOUNT: ${SERVICEHUB_BANK_ACCOUNT:-}
+      SERVICEHUB_BANK_NAME: ${SERVICEHUB_BANK_NAME:-}
+    volumes:
+      - servicehub_data:/data
+      - servicehub_uploads:/app/static/uploads
+    restart: unless-stopped
+volumes:
+  servicehub_data:
+  servicehub_uploads:

@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /static/uploads/
+# After deployment, replace this file with rules and sitemap URL for your real domain.

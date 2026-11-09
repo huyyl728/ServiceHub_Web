@@ -1,0 +1,315 @@
+{
+  "repository": "huyyl728/ServiceHub-6-Sprints",
+  "visibility": "private",
+  "created_from": "ServiceHub-Sprint4-VietQR-QR-Fixed.zip",
+  "milestones": [
+    {
+      "number": 1,
+      "title": "Sprint 1 - Khởi tạo dự án và giao diện",
+      "description": "Xây dựng cấu trúc dự án, trang chủ, điều hướng và responsive, chuẩn bị môi trường chạy.",
+      "status": "code-present"
+    },
+    {
+      "number": 2,
+      "title": "Sprint 2 - Tài khoản, phân quyền và nhà cung cấp",
+      "description": "Phát triển auth, hồ sơ, đăng ký Owner, xét duyệt Admin và quản lý cơ sở.",
+      "status": "code-present"
+    },
+    {
+      "number": 3,
+      "title": "Sprint 3 - Khám phá, dịch vụ, gợi ý và đặt lịch",
+      "description": "Danh mục, tìm kiếm, trải nghiệm đề xuất, CRUD dịch vụ và nghiệp vụ đặt lịch.",
+      "status": "code-present"
+    },
+    {
+      "number": 4,
+      "title": "Sprint 4 - Hội viên, ví demo, VietQR và quản trị",
+      "description": "Hoàn thiện thông báo, quản trị, chương trình hội viên, QR yêu cầu chuyển khoản và test API.",
+      "status": "code-present"
+    },
+    {
+      "number": 5,
+      "title": "Sprint 5 - Kiểm thử, bảo mật và cải thiện UX",
+      "description": "Chạy 20 test case thủ công, rà soát bảo mật, responsive, LAN/Docker và chất lượng.",
+      "status": "planned"
+    },
+    {
+      "number": 6,
+      "title": "Sprint 6 - Nghiệm thu, tài liệu và bàn giao",
+      "description": "Kiểm thử end-to-end, hoàn thiện tài liệu, minh chứng, trình chiếu và bàn giao.",
+      "status": "planned"
+    }
+  ],
+  "issues": [
+    {
+      "sprint": 1,
+      "key": "S1-01",
+      "title": "[S1-01] Khởi tạo Python, SQLite và cấu trúc frontend",
+      "description": "Kiểm tra server.py, schema.sql, static/, Dockerfile và công cụ khởi động.",
+      "acceptance": "Mã nguồn và tài liệu cấu trúc nhất quán; chạy được backend trên database demo.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 1,
+      "key": "S1-02",
+      "title": "[S1-02] Trang chủ, điều hướng và khu vực dịch vụ",
+      "description": "Xây dựng trang chủ, header, navigation và đường dẫn đến danh sách/chi tiết.",
+      "acceptance": "Có ảnh/demo trang chủ và chuyển hướng đúng, không có liên kết hỏng.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 1,
+      "key": "S1-03",
+      "title": "[S1-03] CSS, design system và responsive",
+      "description": "Thống nhất màu sắc, typography, layout; kiểm tra màn hình máy tính và điện thoại.",
+      "acceptance": "Không tràn ngang ở 390px; các thành phần chính hiển thị, thao tác được.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 1,
+      "key": "S1-04",
+      "title": "[S1-04] Trang hỗ trợ UX, thông tin và SEO cơ bản",
+      "description": "Xây dựng trang 404, cảm ơn, quyền riêng tư; thông tin mô tả và alt text.",
+      "acceptance": "Các trang hiển thị đúng; không có nội dung nhạy cảm không phù hợp.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 1,
+      "key": "S1-05",
+      "title": "[S1-05] Tài liệu chạy local và chuẩn bị Git",
+      "description": "README chạy Python/Docker, .gitignore an toàn và ví dụ cấu hình .env.",
+      "acceptance": "Không commit .env, database, private uploads; người mới có thể khởi động theo README.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 2,
+      "key": "S2-01",
+      "title": "[S2-01] Đăng ký, đăng nhập và đăng xuất",
+      "description": "Xác thực, xử lý dữ liệu sai và kết thúc phiên người dùng.",
+      "acceptance": "Đăng nhập hợp lệ thành công; sai thông tin bị từ chối; logout vô hiệu hóa phiên.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 2,
+      "key": "S2-02",
+      "title": "[S2-02] Hồ sơ người dùng và cập nhật thông tin",
+      "description": "Khách hàng xem/chỉnh sửa thông tin và kiểm tra quyền.",
+      "acceptance": "Thông tin cập nhật đúng, chỉ người sở hữu chỉnh sửa được.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 2,
+      "key": "S2-03",
+      "title": "[S2-03] Phân quyền Customer, Owner và Admin",
+      "description": "Tách vai trò và bảo vệ API quan trọng ở backend.",
+      "acceptance": "User thường không thể gọi API Owner/Admin; owner không tác động cơ sở khác.",
+      "status": "code-present",
+      "priority": "P0"
+    },
+    {
+      "sprint": 2,
+      "key": "S2-04",
+      "title": "[S2-04] Đăng ký làm chủ cơ sở và xét duyệt",
+      "description": "Người dùng gửi hồ sơ; admin xét duyệt hoặc từ chối.",
+      "acceptance": "Trạng thái hồ sơ được lưu; chỉ admin được duyệt.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 2,
+      "key": "S2-05",
+      "title": "[S2-05] Quản lý cơ sở và dữ liệu nền tảng",
+      "description": "Lưu thông tin cơ sở, banner, các mối quan hệ người dùng và dịch vụ.",
+      "acceptance": "Database có quan hệ đúng, banner thuộc đúng cơ sở.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 3,
+      "key": "S3-01",
+      "title": "[S3-01] Hiển thị danh sách và lọc danh mục",
+      "description": "Lấy danh sách từ API và lọc theo loại dịch vụ.",
+      "acceptance": "Không trộn sai danh mục; dữ liệu trống có trạng thái phù hợp.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 3,
+      "key": "S3-02",
+      "title": "[S3-02] Tìm kiếm từ khóa và gợi ý khi nhập",
+      "description": "Chuẩn hóa tiếng Việt, gợi ý danh mục/dịch vụ liên quan.",
+      "acceptance": "Từ khóa không dấu có kết quả phù hợp khi có dữ liệu; Enter/ESC/click hoạt động.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 3,
+      "key": "S3-03",
+      "title": "[S3-03] Bộ câu hỏi sở thích cá nhân hóa",
+      "description": "Hỏi nhu cầu, trải nghiệm, ngân sách và gợi ý từ dịch vụ thực.",
+      "acceptance": "Tối đa 3 gợi ý, ngân sách hợp lệ, quay lại/chọn lại và không có kết quả.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 3,
+      "key": "S3-04",
+      "title": "[S3-04] Chủ cơ sở CRUD dịch vụ và quản lý ảnh",
+      "description": "Thêm, xem, sửa, xóa/tạm ngừng dịch vụ và ảnh riêng từng dịch vụ.",
+      "acceptance": "Dữ liệu lưu đúng sau tải lại; owner không sửa dịch vụ của người khác.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 3,
+      "key": "S3-05",
+      "title": "[S3-05] Đặt lịch, hủy và kiểm soát trùng khung giờ",
+      "description": "Xử lý lịch trống, yêu cầu đặt và cập nhật trạng thái.",
+      "acceptance": "Khách đặt hợp lệ; lịch không xung đột; owner xử lý đúng phạm vi.",
+      "status": "code-present",
+      "priority": "P0"
+    },
+    {
+      "sprint": 4,
+      "key": "S4-01",
+      "title": "[S4-01] Hội viên theo từng cơ sở",
+      "description": "Đăng ký hội viên, quản lý quyền lợi, danh sách thành viên và tự xác nhận khi đủ điều kiện.",
+      "acceptance": "Không áp dụng hội viên sang cơ sở khác; API giới hạn owner.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 4,
+      "key": "S4-02",
+      "title": "[S4-02] Ví demo và lịch sử giao dịch",
+      "description": "Nạp/chuyển số dư mô phỏng, giao dịch idempotent, ghi lịch sử.",
+      "acceptance": "Không trừ hai lần khi gửi lặp; từ chối chuyển quá số dư hoặc cho chính mình.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 4,
+      "key": "S4-03",
+      "title": "[S4-03] Tạo VietQR và đối soát thủ công",
+      "description": "Sinh QR theo BIN/số tiền/nội dung duy nhất và lưu yêu cầu chờ xác nhận.",
+      "acceptance": "Chỉ tạo QR không cộng tiền/đánh dấu paid; admin đối soát thủ công; .env không lên Git.",
+      "status": "code-present",
+      "priority": "P0"
+    },
+    {
+      "sprint": 4,
+      "key": "S4-04",
+      "title": "[S4-04] Thông báo, Admin Dashboard và nhật ký",
+      "description": "Chuông thông báo, đánh dấu đã đọc, báo cáo và trạng thái nhà cung cấp.",
+      "acceptance": "Đảm bảo phân quyền; có kiểm thử API và thông báo sau nghiệp vụ.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 4,
+      "key": "S4-05",
+      "title": "[S4-05] Test backend, gợi ý và CI hiện có",
+      "description": "Chạy kiểm thử Python, kiểm tra JavaScript và workflow CI.",
+      "acceptance": "Chạy được scripts/run_checks.py, lưu log; các test tự động hiện có vượt qua.",
+      "status": "code-present",
+      "priority": "P1"
+    },
+    {
+      "sprint": 5,
+      "key": "S5-01",
+      "title": "[S5-01] Thực hiện 20 Test Case thủ công (4 thành viên)",
+      "description": "Mỗi thành viên chạy 5 test case theo bảng Excel hiện có.",
+      "acceptance": "Có Actual Result, Pass/Fail/Blocked và ảnh minh chứng từng case.",
+      "status": "planned",
+      "priority": "P0"
+    },
+    {
+      "sprint": 5,
+      "key": "S5-02",
+      "title": "[S5-02] Kiểm thử UX và tìm kiếm trên điện thoại",
+      "description": "Kiểm tra responsive, gợi ý, nhập liệu lỗi, trạng thái loading/empty.",
+      "acceptance": "Không tràn, form/điều hướng rõ, lỗi có hướng xử lý.",
+      "status": "planned",
+      "priority": "P1"
+    },
+    {
+      "sprint": 5,
+      "key": "S5-03",
+      "title": "[S5-03] Rà soát bảo mật và cấu hình dữ liệu",
+      "description": "Kiểm tra bảo mật tài khoản demo, phân quyền, file tải lên và .env.",
+      "acceptance": "Không có bí mật trên Git; API owner/admin chặn truy cập trái quyền.",
+      "status": "planned",
+      "priority": "P0"
+    },
+    {
+      "sprint": 5,
+      "key": "S5-04",
+      "title": "[S5-04] Đồng bộ Docker, LAN và dữ liệu sau restart",
+      "description": "Kiểm tra cổng 8000/8001, bind host, volumes SQLite và uploads.",
+      "acceptance": "Hai thiết bị cùng Wi-Fi truy cập được khi bật LAN; restart giữ dữ liệu demo.",
+      "status": "planned",
+      "priority": "P1"
+    },
+    {
+      "sprint": 5,
+      "key": "S5-05",
+      "title": "[S5-05] Báo cáo lỗi và kiểm thử hồi quy",
+      "description": "Chuẩn hóa bug report, kiểm thử lại sau khi sửa, theo dõi CI.",
+      "acceptance": "Không có lỗi P0 chưa giải quyết khi chuẩn bị demo; lưu bằng chứng tái kiểm thử.",
+      "status": "planned",
+      "priority": "P1"
+    },
+    {
+      "sprint": 6,
+      "key": "S6-01",
+      "title": "[S6-01] Kiểm thử end-to-end toàn bộ luồng",
+      "description": "Luồng Customer→Owner→Admin và demo VietQR không chuyển tiền thật.",
+      "acceptance": "Có ảnh/video minh họa, kết quả đầy đủ, chỉ đánh dấu pass khi test thực tế.",
+      "status": "planned",
+      "priority": "P1"
+    },
+    {
+      "sprint": 6,
+      "key": "S6-02",
+      "title": "[S6-02] Hoàn thiện README, kiến trúc và hướng dẫn vận hành",
+      "description": "Tài liệu API, SQLite, Docker, .env.example và hướng dẫn khởi động.",
+      "acceptance": "Thành viên mới có thể chạy app/test theo tài liệu.",
+      "status": "planned",
+      "priority": "P1"
+    },
+    {
+      "sprint": 6,
+      "key": "S6-03",
+      "title": "[S6-03] Tổng hợp báo cáo 6 Sprint và theo dõi tiến độ GitHub",
+      "description": "Liên kết Issue/Milestone/commit/PR, tỷ lệ hoàn thành theo bằng chứng.",
+      "acceptance": "Báo cáo phân biệt code-present, passed tests, nghiệm thu thủ công và planned.",
+      "status": "planned",
+      "priority": "P1"
+    },
+    {
+      "sprint": 6,
+      "key": "S6-04",
+      "title": "[S6-04] Chuẩn bị 4 thành viên thuyết trình và demo",
+      "description": "Tổng hợp slide, phân chia phần trình bày và phương án demo offline.",
+      "acceptance": "Có kịch bản demo các tiêu chí HTML/CSS/JS/CRUD/search/UX và bảng kiểm thử.",
+      "status": "planned",
+      "priority": "P1"
+    },
+    {
+      "sprint": 6,
+      "key": "S6-05",
+      "title": "[S6-05] Nghiệm thu MVP và rủi ro triển khai thật",
+      "description": "Rà soát HTTPS, sao lưu/phục hồi, mật khẩu demo, giới hạn thanh toán thật.",
+      "acceptance": "Ghi rõ chưa production-ready; VietQR không tự xác minh đã nhận tiền.",
+      "status": "planned",
+      "priority": "P1"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+# Python and runtime files
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+# Uploaded user images
+static/uploads/*
+!static/uploads/.gitkeep
+
+# More local secrets, backups and SQLite sidecars
+.envrc
+*.db-*
+*.sqlite-*
+*.sqlite3-*
+*.bak
+*.backup
+*.p12
+*.pfx
+*.pem
+*.key
+*.crt
+.idea/
+.vscode/
