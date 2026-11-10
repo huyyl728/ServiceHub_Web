@@ -28,7 +28,7 @@ def main():
                    SERVICEHUB_DB_PATH=str(Path(temp) / 'tests.db'),
                    SERVICEHUB_TEST_BASE=f'http://127.0.0.1:{port}')
         print('>>> Khởi động API thử nghiệm với cơ sở dữ liệu tạm', flush=True)
-        process = subprocess.Popen([sys.executable, 'server.py'], cwd=ROOT,
+        process = subprocess.Popen([sys.executable, 'tests/fixture_server.py'], cwd=ROOT,
                                    env=env, stdout=subprocess.DEVNULL,
                                    stderr=subprocess.DEVNULL)
         try:

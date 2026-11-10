@@ -53,11 +53,6 @@
     try { const path=state.authMode==='login'?'/api/auth/login':'/api/auth/register'; const result=await API.post(path,payload); API.saveSession(result.data); await syncUser(); closeModals(); toast(state.authMode==='login'?'Đăng nhập thành công.':'Tạo tài khoản thành công.'); showView('home'); }
     catch(e){setMessage($('#auth-message'),e.message,true);}
   }
-  async function demoLogin(which) {
-    const accounts={customer:['huy@servicehub.local','Huy@12345'],owner:['owner@servicehub.local','Owner@12345'],admin:['admin@servicehub.local','Admin@12345']};
-    const [email,password]=accounts[which]; try { const r=await API.post('/api/auth/login',{email,password}); API.saveSession(r.data); await syncUser(); closeModals(); toast('Đã đăng nhập tài khoản thử nghiệm.'); showView(which==='admin'?'admin':which==='owner'?'owner':'home'); }
-    catch(e){toast(e.message,true);}
-  }
   function serviceCard(s) {
     const icons={'Sân bóng':'⚽','Thể thao':'◉','Làm đẹp':'✂','Spa':'✦','Nhà hàng':'⌂'};
     const photo=s.image_path||s.business_banner;
@@ -404,7 +399,6 @@
       if(e.target.closest('#logout-btn')){API.post('/api/auth/logout',{}).catch(()=>{});API.clearSession();state.user=null;state.profile=null;updateAuthUI();toast('Đã đăng xuất.');showView('home');return;}
       const close=e.target.closest('[data-close-modal]');if(close){closeModals();return;}
       const mode=e.target.closest('[data-auth-mode]');if(mode){authMode(mode.dataset.authMode);return;}
-      const demo=e.target.closest('[data-demo-login]');if(demo){demoLogin(demo.dataset.demoLogin);return;}
       const detail=e.target.closest('[data-business-detail]');if(detail){openBusinessDetails(detail.dataset.businessDetail);return;}
       const book=e.target.closest('[data-book-service]');if(book){closeModals();beginBooking(book.dataset.bookService);return;}
       const cancel=e.target.closest('[data-cancel-booking]');if(cancel){cancelBooking(cancel.dataset.cancelBooking);return;}

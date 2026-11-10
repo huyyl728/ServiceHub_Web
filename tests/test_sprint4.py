@@ -28,7 +28,7 @@ class Sprint4IntegrationTests(unittest.TestCase):
         cls.base = f'http://127.0.0.1:{port}'
         env = dict(os.environ, SERVICEHUB_HOST='127.0.0.1', SERVICEHUB_PORT=str(port),
                    SERVICEHUB_DB_PATH=str(Path(cls.temp.name) / 'isolated.db'))
-        cls.process = subprocess.Popen([sys.executable, 'server.py'], cwd=ROOT, env=env,
+        cls.process = subprocess.Popen([sys.executable, 'tests/fixture_server.py'], cwd=ROOT, env=env,
                                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         for _ in range(100):
             if cls.process.poll() is not None:

@@ -26,7 +26,7 @@ class BankQRTests(unittest.TestCase):
                  SERVICEHUB_DB_PATH=str(Path(cls.tmp.name)/'data.db'),
                  SERVICEHUB_ENABLE_BANK_QR='1',SERVICEHUB_BANK_BIN='970436',
                  SERVICEHUB_BANK_ACCOUNT='0000000000',SERVICEHUB_BANK_NAME='NGUYEN VAN DEMO')
-        cls.proc=subprocess.Popen([sys.executable,'server.py'],cwd=ROOT,env=env,
+        cls.proc=subprocess.Popen([sys.executable,'tests/fixture_server.py'],cwd=ROOT,env=env,
                                   stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         try:
             for _ in range(100):
@@ -184,9 +184,11 @@ class BankQRTests(unittest.TestCase):
 class BankQRCreditMigrationTests(unittest.TestCase):
     def test_startup_repairs_legacy_confirmations_once(self):
         import server
+        from fixture_server import seed_demo_data
         with tempfile.TemporaryDirectory(prefix='servicehub-credit-migration-') as tmp:
-            with patch.object(server,'DB_PATH',Path(tmp)/'legacy.db'):
+            with patch.multiple(server,DB_PATH=Path(tmp)/'legacy.db',ADMIN_EMAIL='',ADMIN_PASSWORD=''):
                 server.seed()
+                seed_demo_data()
                 with server.connect() as c:
                     users=[r['id'] for r in c.execute('SELECT id FROM users ORDER BY id LIMIT 2')]
                     before={r['user_id']:r['balance'] for r in c.execute('SELECT * FROM wallets')}

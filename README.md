@@ -56,15 +56,11 @@ docker compose up --build
 
 Sau đó mở <http://127.0.0.1:8000>. Compose lưu database và ảnh tải lên trong volume để dữ liệu không biến mất khi container được tạo lại. Cấu hình này giúp chạy nhất quán hơn, nhưng **không tự biến ứng dụng thành production-ready**; vẫn cần reverse proxy HTTPS, bảo mật vận hành và các bước trong mục 8–9.
 
-## 3. Tài khoản demo
+## 3. Tài khoản và quyền quản trị
 
-| Vai trò | Email | Mật khẩu |
-|---|---|---|
-| Khách hàng | `huy@servicehub.local` | `Huy@12345` |
-| Chủ cơ sở demo | `owner@servicehub.local` | `Owner@12345` |
-| Admin | `admin@servicehub.local` | `Admin@12345` |
+Khách hàng đăng ký bằng email của mình; chủ cơ sở gửi hồ sơ xét duyệt. Các nút đăng nhập demo và tài khoản mặc định công khai đã được loại bỏ.
 
-Có thể chọn các nút tài khoản thử nghiệm ngay trong hộp đăng nhập. Không dùng các mật khẩu demo này trong môi trường thật.
+Admin riêng được cấu hình qua `SERVICEHUB_ADMIN_EMAIL` và `SERVICEHUB_ADMIN_PASSWORD`. Chạy `python3 scripts/setup_admin.py --email admin@servicehub.local` để tạo cấu hình bí mật và xem [hướng dẫn admin trên local/Render](docs/ADMIN_SETUP.md). Không commit mật khẩu, `.env` hoặc `.env.admin`.
 
 ## 4. Chức năng hiện có
 
@@ -90,13 +86,9 @@ Có thể chọn các nút tài khoản thử nghiệm ngay trong hộp đăng n
 - Thông báo trong dữ liệu backend và thống kê cơ bản cho admin.
 - API health check tại `/api/health`.
 
-## Tài khoản demo và kiểm thử
+## Kiểm thử
 
-- Admin: `admin@servicehub.local` / `Admin@12345`
-- Khách hàng: `huy@servicehub.local` / `Huy@12345`
-- Chủ cơ sở: `owner@servicehub.local` / `Owner@12345`
-
-Đây là thông tin đăng nhập công khai chỉ dành cho demo local. Không dùng các mật khẩu này trên môi trường internet. Chạy kiểm tra cú pháp bằng `python3 -m py_compile server.py payment_providers.py` và `node --check static/js/app.js`. Smoke test trong `tests/test_smoke.py` và `tests/test_wallet_transfer.py` cần server đang chạy ở `http://127.0.0.1:8000`. Có thể chạy `python3 -m unittest discover -s tests`.
+Chạy `python3 scripts/run_checks.py`. Bộ test tự chạy server với tài khoản fixture trên SQLite tạm; không dùng server đang có dữ liệu thật. Server chạy bình thường không tự tạo tài khoản demo. Kiểm thử gồm quyền admin, khóa tài khoản/phiên demo cũ và giới hạn đọc tệp static.
 
 ## 5. Cấu trúc thư mục
 

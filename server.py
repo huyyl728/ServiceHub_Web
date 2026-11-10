@@ -47,6 +47,9 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 # Fallback supports running Python directly with a .env made for Docker Compose.
 HOST = os.environ.get('SERVICEHUB_HOST', '127.0.0.1')
 PORT = int(os.environ.get('SERVICEHUB_PORT') or os.environ.get('SERVICEHUB_HOST_PORT') or '8000')
+ADMIN_EMAIL = os.environ.get('SERVICEHUB_ADMIN_EMAIL', '').strip().lower()
+ADMIN_PASSWORD = os.environ.get('SERVICEHUB_ADMIN_PASSWORD', '')
+LEGACY_DEMO_EMAILS = ('admin@servicehub.local', 'huy@servicehub.local', 'owner@servicehub.local')
 # Bank details are configured locally; this source archive contains no receiving account.
 BANK_QR_ENABLED = os.environ.get('SERVICEHUB_ENABLE_BANK_QR', '0') == '1'
 BANK_BIN = os.environ.get('SERVICEHUB_BANK_BIN', '').strip()
@@ -146,6 +149,43 @@ def repair_bank_qr_credits():
         return len(rows)
 
 
+def configure_admin():
+    """Retire public demo logins once and provision the privately configured admin."""
+    if bool(ADMIN_EMAIL) != bool(ADMIN_PASSWORD):
+        raise RuntimeError('Set both SERVICEHUB_ADMIN_EMAIL and SERVICEHUB_ADMIN_PASSWORD.')
+    if ADMIN_EMAIL and (not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', ADMIN_EMAIL)
+                        or len(ADMIN_EMAIL)>254 or len(ADMIN_PASSWORD)<16):
+        raise RuntimeError('Admin email must be valid and admin password must contain at least 16 characters.')
+    with connect() as c:
+        c.execute('BEGIN IMMEDIATE')
+        if not c.execute("SELECT 1 FROM app_settings WHERE key='demo_logins_retired_v1'").fetchone():
+            for email in LEGACY_DEMO_EMAILS:
+                row=c.execute('SELECT id FROM users WHERE email=?',(email,)).fetchone()
+                if row:
+                    c.execute('DELETE FROM sessions WHERE user_id=?',(row['id'],))
+                    c.execute('UPDATE users SET login_enabled=0,is_admin=0,password_hash=? WHERE id=?',
+                              (hash_password(secrets.token_urlsafe(32)),row['id']))
+                    audit(c,None,'demo_login_disabled','user',row['id'])
+            c.execute("INSERT INTO app_settings(key,value) VALUES('demo_logins_retired_v1','done')")
+        if ADMIN_EMAIL:
+            row=c.execute('SELECT * FROM users WHERE email=?',(ADMIN_EMAIL,)).fetchone()
+            # A config typo must never silently promote an ordinary customer's account.
+            if row and not row['is_admin'] and not (row['email']=='admin@servicehub.local' and not row['login_enabled']):
+                raise RuntimeError('Admin email belongs to a non-admin account. Choose a separate admin email.')
+            if row:
+                changed=not row['login_enabled'] or not row['is_admin'] or not verify_password(ADMIN_PASSWORD,row['password_hash'])
+                if changed:
+                    c.execute('DELETE FROM sessions WHERE user_id=?',(row['id'],))
+                    c.execute('UPDATE users SET password_hash=?,is_admin=1,login_enabled=1 WHERE id=?',
+                              (hash_password(ADMIN_PASSWORD),row['id']))
+                    audit(c,None,'admin_credentials_configured','user',row['id'])
+            else:
+                uid=c.execute('INSERT INTO users(name,email,password_hash,is_admin) VALUES(?,?,?,1)',
+                              ('Quản trị ServiceHub',ADMIN_EMAIL,hash_password(ADMIN_PASSWORD))).lastrowid
+                c.execute('INSERT INTO wallets(user_id,balance) VALUES(?,0)',(uid,))
+                audit(c,None,'admin_account_created','user',uid)
+
+
 def seed():
     with connect() as c:
         c.executescript(SCHEMA)
@@ -164,60 +204,10 @@ def seed():
             c.execute("ALTER TABLE membership_programs ADD COLUMN benefits TEXT NOT NULL DEFAULT ''")
         if 'auto_approve_bookings' not in membership_columns:
             c.execute("ALTER TABLE membership_programs ADD COLUMN auto_approve_bookings INTEGER NOT NULL DEFAULT 0")
-        if c.execute('SELECT COUNT(*) FROM users').fetchone()[0] == 0:
-            users = [
-                ('Admin ServiceHub','admin@servicehub.local','0900000000','Admin@12345',1),
-                ('Nguyễn Thành Huy','huy@servicehub.local','0912345678','Huy@12345',0),
-                ('Chủ sân mẫu','owner@servicehub.local','0987654321','Owner@12345',0),
-            ]
-            ids={}
-            for name,email,phone,pw,admin in users:
-                cur=c.execute('INSERT INTO users(name,email,phone,password_hash,is_admin) VALUES(?,?,?,?,?)',(name,email,phone,hash_password(pw),admin)); ids[email]=cur.lastrowid
-                c.execute('INSERT INTO wallets(user_id,balance) VALUES(?,?)',(cur.lastrowid,500000))
-            cur=c.execute('INSERT INTO businesses(name,category,address,phone,description,owner_id,status) VALUES(?,?,?,?,?,?,?)',('Huy Football','Sân bóng','Cầu Giấy, Hà Nội','0987654321','Sân bóng mẫu để thử đặt lịch.',ids['owner@servicehub.local'],'active'))
-            bid=cur.lastrowid
-            samples=[('Sân bóng 5 người','Sân cỏ nhân tạo, đặt theo giờ.',250000,60,'Sân bóng'),('Cắt tóc cơ bản','Dịch vụ cắt tóc nam.',80000,30,'Làm đẹp'),('Chăm sóc da thư giãn','Liệu trình chăm sóc da cơ bản.',300000,60,'Spa'),('Bàn ăn 2 người','Đặt bàn tại nhà hàng đối tác.',0,90,'Nhà hàng')]
-            for n,d,p,dur,cat in samples:
-                c.execute('INSERT INTO services(business_id,name,description,price,duration_minutes,category) VALUES(?,?,?,?,?,?)',(bid,n,d,p,dur,cat))
-            c.execute('INSERT INTO membership_programs(business_id,name,description) VALUES(NULL,?,?,?)'.replace('VALUES(NULL,?,?,?)','VALUES(NULL,?,?)'),('ServiceHub Rewards','Chương trình hội viên nền tảng.'))
-            c.execute('INSERT INTO membership_programs(business_id,name,description) VALUES(?,?,?)',(bid,'Huy Football Member','Hội viên riêng của cơ sở Huy Football.'))
-            c.commit()
-        # Seed a small set of clearly labelled demo businesses on both new and existing databases.
-        owner = c.execute('SELECT id FROM users WHERE email=?', ('owner@servicehub.local',)).fetchone()
-        if owner:
-            demo_businesses = [
-                ('Bếp Nhà Mình (Demo)', 'Nhà hàng', 'Ba Đình, Hà Nội', '0901112233', 'Nhà hàng demo với món Việt thân thuộc. Nội dung minh họa cho buổi trình diễn.', '/static/images/demo-restaurant.svg'),
-                ('Mộc Hair Studio (Demo)', 'Làm đẹp', 'Đống Đa, Hà Nội', '0902223344', 'Tiệm tóc demo, đặt lịch cắt và tạo kiểu.', '/static/images/demo-salon.svg'),
-                ('An Nhiên Spa (Demo)', 'Spa', 'Cầu Giấy, Hà Nội', '0903334455', 'Không gian spa demo để trình diễn luồng khám phá dịch vụ.', '/static/images/demo-spa.svg'),
-                ('Sân Pickleball Phố (Demo)', 'Thể thao', 'Thanh Xuân, Hà Nội', '0904445566', 'Sân thể thao demo với lịch đặt theo giờ.', '/static/images/demo-sport.svg'),
-                ('Cà phê Góc Phố (Demo)', 'Nhà hàng', 'Tây Hồ, Hà Nội', '0905556677', 'Quán cà phê demo, dữ liệu chỉ dùng để minh họa giao diện.', '/static/images/demo-cafe.svg'),
-            ]
-            for name, category, address, phone, desc, banner in demo_businesses:
-                row = c.execute('SELECT id FROM businesses WHERE name=?', (name,)).fetchone()
-                if row:
-                    bid = row['id']
-                    c.execute("UPDATE businesses SET banner_path=CASE WHEN banner_path IS NULL OR banner_path='' THEN ? ELSE banner_path END WHERE id=?", (banner, bid))
-                else:
-                    cur = c.execute('INSERT INTO businesses(name,category,address,phone,description,owner_id,status,banner_path) VALUES(?,?,?,?,?,?,?,?)', (name,category,address,phone,desc,owner['id'],'active',banner))
-                    bid = cur.lastrowid
-                existing = c.execute('SELECT COUNT(*) FROM services WHERE business_id=?', (bid,)).fetchone()[0]
-                if existing == 0:
-                    examples = {
-                        'Nhà hàng': [('Bàn ăn 2 người','Đặt bàn tại quán (demo).',0,90,'Nhà hàng'),('Bữa tối đặc biệt','Thực đơn demo, vui lòng xác nhận trực tiếp.',220000,90,'Nhà hàng')],
-                        'Làm đẹp': [('Cắt tóc và tạo kiểu','Dịch vụ demo của Mộc Hair Studio.',120000,45,'Làm đẹp'),('Gội đầu thư giãn','Dịch vụ demo.',80000,30,'Làm đẹp')],
-                        'Spa': [('Chăm sóc da cơ bản','Liệu trình demo, không phải tư vấn y tế.',280000,60,'Spa'),('Massage thư giãn','Dịch vụ demo.',350000,60,'Spa')],
-                        'Thể thao': [('Thuê sân 60 phút','Giá demo theo khung giờ.',180000,60,'Thể thao'),('Thuê sân 90 phút','Giá demo theo khung giờ.',250000,90,'Thể thao')],
-                    }
-                    for n,d,price,duration,cat in examples.get(category, []):
-                        c.execute('INSERT INTO services(business_id,name,description,price,duration_minutes,category) VALUES(?,?,?,?,?,?)',(bid,n,d,price,duration,cat))
-                # Explicitly label a demo cafe offering so discovery does not mistake
-                # an ordinary restaurant booking for an actual coffee/drinks service.
-                if name == 'Cà phê Góc Phố (Demo)' and not c.execute(
-                    'SELECT 1 FROM services WHERE business_id=? AND name=?',
-                    (bid, 'Trải nghiệm cà phê (Demo)')).fetchone():
-                    c.execute('INSERT INTO services(business_id,name,description,price,duration_minutes,category) VALUES(?,?,?,?,?,?)',
-                              (bid, 'Trải nghiệm cà phê (Demo)', 'Đặt chỗ trải nghiệm cà phê minh họa, không phải thực đơn thật.', 45000, 60, 'Đồ uống'))
-            c.commit()
+        if 'login_enabled' not in user_columns:
+            c.execute('ALTER TABLE users ADD COLUMN login_enabled INTEGER NOT NULL DEFAULT 1')
+        c.commit()
+    configure_admin()
 
     repair_bank_qr_credits()
 
@@ -250,7 +240,7 @@ class Handler(BaseHTTPRequestHandler):
             return None
         token_hash=hashlib.sha256(token.encode()).hexdigest()
         with connect() as c:
-            row=c.execute('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?',(token_hash,now_iso())).fetchone()
+            row=c.execute('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.login_enabled=1',(token_hash,now_iso())).fetchone()
         if not row:
             if required: raise APIError(401,'SESSION_INVALID','Phiên đăng nhập hết hạn hoặc không hợp lệ.')
             return None
@@ -283,7 +273,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(500,{'success':False,'error':{'code':'INTERNAL_ERROR','message':'Đã xảy ra lỗi máy chủ. Hãy kiểm tra terminal để debug.'}})
     def serve(self,path,status=200):
         try:
-            path=path.resolve(); path.relative_to(ROOT.resolve())
+            path=path.resolve(); path.relative_to((ROOT/'static').resolve())
             if not path.is_file(): raise FileNotFoundError
             data=path.read_bytes(); ctype=mimetypes.guess_type(str(path))[0] or 'application/octet-stream'
             self.send_response(status); self.send_header('Content-Type',ctype + ('; charset=utf-8' if ctype.startswith('text/') or 'javascript' in ctype else '')); self.send_header('Content-Length',str(len(data))); self.send_header('X-Content-Type-Options','nosniff'); self.end_headers(); self.wfile.write(data)
@@ -314,6 +304,8 @@ class Handler(BaseHTTPRequestHandler):
         if method=='POST' and p=='/api/auth/register':
             d=self.body(); name=str(d.get('name','')).strip(); email=str(d.get('email','')).strip().lower(); phone=str(d.get('phone','')).strip(); pw=str(d.get('password',''))
             if len(name)<2 or '@' not in email or len(pw)<8: raise APIError(400,'VALIDATION_ERROR','Nhập họ tên hợp lệ, email hợp lệ và mật khẩu ít nhất 8 ký tự.')
+            if email in LEGACY_DEMO_EMAILS or email==ADMIN_EMAIL:
+                raise APIError(400,'EMAIL_RESERVED','Địa chỉ này không dùng để đăng ký. Vui lòng dùng email cá nhân của bạn.')
             with connect() as c:
                 try: cur=c.execute('INSERT INTO users(name,email,phone,password_hash) VALUES(?,?,?,?)',(name,email,phone,hash_password(pw)))
                 except sqlite3.IntegrityError: raise APIError(409,'EMAIL_EXISTS','Email này đã được đăng ký.')
@@ -322,7 +314,7 @@ class Handler(BaseHTTPRequestHandler):
         if method=='POST' and p=='/api/auth/login':
             d=self.body(); email=str(d.get('email','')).strip().lower(); pw=str(d.get('password',''))
             with connect() as c: row=c.execute('SELECT * FROM users WHERE email=?',(email,)).fetchone()
-            if not row or not verify_password(pw,row['password_hash']): raise APIError(401,'LOGIN_FAILED','Email hoặc mật khẩu không đúng.')
+            if not row or not row['login_enabled'] or not verify_password(pw,row['password_hash']): raise APIError(401,'LOGIN_FAILED','Email hoặc mật khẩu không đúng.')
             return self.login_user(row['id'])
         if method=='POST' and p=='/api/auth/logout':
             user=self.auth()
@@ -872,5 +864,4 @@ if __name__=='__main__':
     else:
         logging.warning('VietQR not configured: %s', ' '.join(BANK_QR_ISSUES))
     logging.info('ServiceHub running at http://%s:%s',HOST,PORT)
-    logging.info('Demo accounts: admin@servicehub.local / Admin@12345; huy@servicehub.local / Huy@12345; owner@servicehub.local / Owner@12345')
     ThreadingHTTPServer((HOST,PORT),Handler).serve_forever()

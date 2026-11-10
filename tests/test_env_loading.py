@@ -102,8 +102,8 @@ print(json.dumps({"configured": server.BANK_QR_CONFIGURED,
                     time.sleep(.1)
             else:
                 self.fail('Server startup timed out')
-            _, login = request('/api/auth/login', 'POST',
-                        {'email': 'huy@servicehub.local', 'password': 'Huy@12345'})
+            _, login = request('/api/auth/register', 'POST',
+                        {'name': 'QR Environment Test', 'email': 'qr-test@example.com', 'password': 'Test-Only-Password-123'})
             token = login['data']['token']
             _, config = request('/api/bank-qr/config', token=token)
             self.assertTrue(config['data']['configured'], config)
