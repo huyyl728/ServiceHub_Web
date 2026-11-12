@@ -23,6 +23,7 @@ class LocalEnvLoadingTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(prefix='servicehub-env-regression-')
         self.root = Path(self.tmp.name)
         shutil.copyfile(SOURCE / 'server.py', self.root / 'server.py')
+        shutil.copyfile(SOURCE / 'local_demo.py', self.root / 'local_demo.py')
         shutil.copyfile(SOURCE / 'schema.sql', self.root / 'schema.sql')
         (self.root / '.env').write_text('''# settings only for temporary test instance
 SERVICEHUB_ENABLE_BANK_QR=1

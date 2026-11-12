@@ -214,3 +214,8 @@ Bản này kế thừa Sprint 1–3 và tính năng tư vấn ba câu hỏi. Cá
 - Hệ thống ghi nhận yêu cầu `pending` và cho admin đối soát thủ công; **chỉ cộng ví sau khi admin xác nhận đối soát**, kèm lịch sử giao dịch và chống cộng trùng. Khi khởi động lại, server tự bổ sung các yêu cầu đã xác nhận ở phiên bản cũ nhưng chưa được cộng ví.
 - API ví demo cũ vẫn được giữ để đảm bảo khả năng tương thích với các bài kiểm thử cũ.
 - Đọc kỹ **`BANK_QR_GUIDE.md`** trước khi bật vì QR có thể được dùng để chuyển tiền thật.
+
+## Demo local cho thuyết trình
+
+Xem [hướng dẫn seed 3 Customer + 3 Owner](docs/LOCAL_DEMO.md). Script yêu cầu bật
+chế độ local rõ ràng, dùng SQLite riêng và giữ mật khẩu ngoài repository.

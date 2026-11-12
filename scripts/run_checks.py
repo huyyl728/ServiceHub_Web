@@ -19,7 +19,8 @@ def run(args, *, env=None):
 
 
 def main():
-    run([sys.executable, '-m', 'py_compile', 'server.py', 'payment_providers.py'])
+    run([sys.executable, '-m', 'py_compile', 'server.py', 'payment_providers.py',
+         'local_demo.py', 'scripts/seed_local_demo.py'])
     with tempfile.TemporaryDirectory(prefix='servicehub-all-tests-') as temp:
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))

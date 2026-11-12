@@ -17,3 +17,5 @@ static/uploads/*
 tests/
 docs/qa/
 .DS_Store
+.local-demo/
+*demo-credentials*.json

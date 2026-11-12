@@ -7,6 +7,7 @@ from urllib.parse import urlparse, parse_qs, urlencode
 from pathlib import Path
 import sqlite3, json, secrets, hashlib, hmac, os, mimetypes, traceback, logging, time, re, shlex
 from datetime import datetime, timedelta, timezone
+from local_demo import MARKER as LOCAL_DEMO_MARKER, require_local_demo
 
 ROOT = Path(__file__).resolve().parent
 
@@ -188,6 +189,10 @@ def configure_admin():
 
 def seed():
     with connect() as c:
+        # A demo database must not become public merely by copying it or changing HOST.
+        if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='app_settings'").fetchone():
+            if c.execute('SELECT 1 FROM app_settings WHERE key=?', (LOCAL_DEMO_MARKER,)).fetchone():
+                require_local_demo(os.environ, HOST, DB_PATH, ROOT)
         c.executescript(SCHEMA)
         # Safe migrations for databases created by earlier project versions.
         user_columns = {row['name'] for row in c.execute('PRAGMA table_info(users)')}

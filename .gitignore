@@ -27,3 +27,7 @@ static/uploads/*
 *.crt
 .idea/
 .vscode/
+
+# Disposable presentation data; credentials must also live outside this repository.
+.local-demo/
+*demo-credentials*.json
