@@ -1,34 +1,60 @@
-# SERVICEHUB — KẾ HOẠCH QUẢN LÝ 6 SPRINT
+# SERVICEHUB — KẾ HOẠCH 6 SPRINT (ĐIỀU CHỈNH PHẠM VI)
 
-**Nguồn mã:** bản ServiceHub Sprint 4 + VietQR, có các tính năng được xây dựng đến Sprint 4.  
-**Repository đề xuất:** `huyyl728/ServiceHub-6-Sprints` (Private).  
-**Nhóm:** 4 thành viên; phân công issue thực tế sau khi được mời vào repository.
+**Dự án:** ServiceHub – tìm kiếm, đặt lịch và quản lý lịch dịch vụ trực tuyến.  
+**Repository:** `huyyl728/ServiceHub_Web` (Private).  
+**Nhóm:** 4 thành viên; **trưởng nhóm tự phân công** qua Assignees, hiện không tự gán cho các Issue Sprint 4 mới.
 
-**Trạng thái:** `code-present` nghĩa là mã nguồn có triển khai nhưng *chưa đồng nghĩa đã được kiểm thử thủ công hoặc nghiệm thu*. `planned` nghĩa là backlog của Sprint 5–6. Toàn bộ Issue ban đầu để Open để kiểm chứng theo tiêu chí nghiệm thu.
+## Quyết định thay đổi phạm vi sau Sprint Review
 
-| Sprint | Mục tiêu | Issue | Trạng thái ban đầu |
+Theo góp ý của giảng viên, ServiceHub **không tiếp tục phát triển thanh toán, ví và VietQR**. Dự án tập trung vào tìm kiếm, đặt lịch, quản lý lịch, đánh giá/bình luận cửa hàng – dịch vụ và quản trị thống kê từng cơ sở.
+
+**Lịch sử:** Sprint 4 cũ từng có các Issue #16–#20 về hội viên, ví demo, VietQR, thông báo và test. Các Issue đó đã đóng, được giữ nguyên để thể hiện lịch sử phát triển; **không phải backlog Sprint 4 điều chỉnh**. Không xóa commit hoặc dữ liệu ngân hàng trước khi rà soát/sao lưu. Việc ẩn/ngừng luồng thanh toán là công việc mới, hiện chưa triển khai.
+
+## Kế hoạch Sprint (bản mới)
+
+| Sprint | Mục tiêu | Issue | Trạng thái |
 |---|---|---|---|
-| Sprint 1 | Khởi tạo dự án và giao diện | S1-01, S1-02, S1-03, S1-04, S1-05 | code-present |
-| Sprint 2 | Tài khoản, phân quyền và nhà cung cấp | S2-01, S2-02, S2-03, S2-04, S2-05 | code-present |
-| Sprint 3 | Khám phá, dịch vụ, gợi ý và đặt lịch | S3-01, S3-02, S3-03, S3-04, S3-05 | code-present |
-| Sprint 4 | Hội viên, ví demo, VietQR và quản trị | S4-01, S4-02, S4-03, S4-04, S4-05 | code-present |
-| Sprint 5 | Kiểm thử, bảo mật và cải thiện UX | S5-01, S5-02, S5-03, S5-04, S5-05 | planned |
-| Sprint 6 | Nghiệm thu, tài liệu và bàn giao | S6-01, S6-02, S6-03, S6-04, S6-05 | planned |
+| 1 | Khởi tạo và giao diện | #1–#5 | Closed |
+| 2 | Tài khoản, phân quyền, cơ sở | #6–#10 | Closed |
+| 3 | Tìm kiếm, gợi ý và đặt lịch | #11–#15 | Closed |
+| **4 (điều chỉnh)** | **Đánh giá, bình luận và quản trị cơ sở nâng cao** | **#32–#39 (S4R-01...S4R-08)** | **Open; chưa phân công** |
+| 5 | Kiểm thử, bảo mật, UX và ổn định | #21–#25 | Open; giữ kế hoạch QA |
+| 6 | Nghiệm thu, tài liệu và bàn giao | #26–#30 | Open |
 
-## Gợi ý phân công
-- **Thành viên 1 (Frontend):** HTML/CSS, responsive, tìm kiếm và gợi ý.
-- **Thành viên 2 (Backend):** Python, SQLite, API, phân quyền, nghiệp vụ đặt lịch.
-- **Thành viên 3 (Provider/Admin):** quản lý cơ sở, dịch vụ, lịch, hội viên và báo cáo.
-- **Thành viên 4 (QA/Integration):** 20 test case, Docker, CI, tài liệu và demo.
+## Sprint 4 điều chỉnh — Backlog và Acceptance Criteria
 
-## Định nghĩa hoàn thành (Definition of Done)
-1. Có mã nguồn liên quan trong repo, đã được review; không chỉ đóng issue trên kế hoạch.
-2. Có kết quả kiểm thử và minh chứng; thao tác UI cần thử trên trình duyệt.
-3. Không chứa `.env`, số tài khoản thật, SQLite dữ liệu cá nhân, hoặc ảnh upload cá nhân.
-4. Các nghiệp vụ thanh toán phải giữ trạng thái pending cho đến khi đối soát thực tế.
-5. Chỉ đóng Issue sau khi đạt tiêu chí nghiệm thu của chính Issue đó.
+**Sprint Goal:** Khách hàng có thể đánh giá sau khi lịch đặt hoàn thành; Admin xem chi tiết từng cửa hàng: lịch đặt, dịch vụ, sao và bình luận. Luồng đặt lịch không còn phụ thuộc thanh toán.
 
-## Liên kết tài liệu
-- [`GITHUB_BACKLOG.json`](GITHUB_BACKLOG.json) chứa 6 Milestone và 30 Issue với từng điều kiện nghiệm thu.
-- [`GITHUB_SETUP.md`](GITHUB_SETUP.md) hướng dẫn xuất bản repo Private, tạo Milestone và Issue tự động bằng GitHub CLI.
-- [`../docs/ServiceHub_20_TestCases_4_ThanhVien.xlsx`](ServiceHub_20_TestCases_4_ThanhVien.xlsx) là bộ test 20 trường hợp cần chạy và điền kết quả thực tế.
+| Mã | Issue | Mục tiêu |
+|---|---|---|
+| S4R-01 | [#32](https://github.com/huyyl728/ServiceHub_Web/issues/32) | Bỏ thanh toán khỏi luồng đặt lịch; không xóa dữ liệu lịch sử tùy tiện |
+| S4R-02 | [#33](https://github.com/huyyl728/ServiceHub_Web/issues/33) | Thiết kế SQLite và API đánh giá cửa hàng/dịch vụ |
+| S4R-03 | [#34](https://github.com/huyyl728/ServiceHub_Web/issues/34) | Form sao và bình luận cho khách có lịch hoàn thành |
+| S4R-04 | [#35](https://github.com/huyyl728/ServiceHub_Web/issues/35) | Hiển thị rating và nhận xét theo đúng cửa hàng/dịch vụ |
+| S4R-05 | [#36](https://github.com/huyyl728/ServiceHub_Web/issues/36) | API thống kê Admin cho từng cơ sở |
+| S4R-06 | [#37](https://github.com/huyyl728/ServiceHub_Web/issues/37) | Admin Dashboard và chi tiết từng cơ sở |
+| S4R-07 | [#38](https://github.com/huyyl728/ServiceHub_Web/issues/38) | Phân quyền đánh giá, ngăn sửa trái phép và kiểm duyệt bình luận |
+| S4R-08 | [#39](https://github.com/huyyl728/ServiceHub_Web/issues/39) | Kiểm thử tích hợp, hồi quy và nghiệm thu |
+
+**Nghiệp vụ đánh giá:** Chỉ chủ tài khoản có booking `completed` được đánh giá, không đánh giá trùng một booking; backend kiểm tra quyền, dữ liệu, an toàn nội dung. Review ẩn không tính vào điểm công khai.
+
+**Chỉ số quản trị:** Tổng số lịch đặt, hoàn thành, đã hủy; số lượng dịch vụ; điểm sao và số lượt nhận xét theo từng cửa hàng. Có kiểm tra quyền Admin và đối chiếu số liệu với SQLite.
+
+**Phân công:** Để trống `Assignees` cho #32–#39. Trưởng nhóm tự chọn thành viên dựa trên năng lực và khối lượng công việc. Mỗi Issue cần có nhánh Git riêng và Pull Request.
+
+## Sprint 5 và 6
+
+- **Sprint 5:** Chạy 20 test case, kiểm thử trên điện thoại, kiểm tra bảo mật, Docker/LAN và kiểm thử hồi quy; điều chỉnh bộ test để không còn kỳ vọng thanh toán.
+- **Sprint 6:** Kiểm thử end-to-end Customer → Owner → Admin, tài liệu sử dụng, báo cáo Sprint và buổi demo/đánh giá cuối kỳ.
+
+## Definition of Done
+
+1. Tính năng có code trên nhánh riêng, Pull Request được review và merge.
+2. Hoàn thành các tiêu chí nghiệm thu trong Issue; có kết quả test và minh chứng.
+3. Không commit `.env`, mật khẩu, thông tin ngân hàng thật hoặc SQLite cá nhân.
+4. Không tự đóng Issue chỉ vì đã tạo UI/API; phải xác minh luồng hoạt động.
+5. Admin thống kê chính xác, đánh giá đúng điều kiện booking và quyền truy cập.
+
+## Ghi chú GitHub Milestone
+
+Issue #32–#39 hiện được gắn **Milestone số 4**. Tên Milestone #4 cũ cần đổi thành **`Sprint 4 – Đánh giá và quản trị nâng cao`** bằng GitHub UI/CLI. Milestone #5 cần đổi lại thành **`Sprint 5 – Kiểm thử, bảo mật và cải thiện UX`** nếu trước đó bị đổi tên. Việc chỉnh tên không thay đổi lịch sử Issue/commit.
