@@ -2,7 +2,7 @@
 
 Đã kiểm tra trong môi trường đóng gói:
 
-- `python3 -m py_compile server.py payment_providers.py`
+- `python3 -m py_compile server.py`
 - `node --check static/js/app.js`
 - `python3 -m unittest discover -s tests -v` khi server chạy tại `127.0.0.1:8000`: 7/7 test hiện có đạt.
 
@@ -23,14 +23,9 @@ Các kết quả trên không phải phép thử triển khai production hoặc 
 ## Kiểm thử bản Sprint 4 (08/11/2026)
 
 - Đã chạy `python3 scripts/run_checks.py` bằng SQLite tạm: **13/13** bài kiểm thử Python đạt (7 bài cũ + 6 bài tích hợp Sprint 4).
-- Đã kiểm tra cú pháp `server.py`, `payment_providers.py`, `static/js/app.js` và `static/js/advisor.js`: đạt.
+- Đã kiểm tra cú pháp `server.py`, `static/js/app.js` và `static/js/advisor.js`: đạt.
 - `node tests/test_advisor.js`: đạt.
 - Thử kiểm tra giao diện tự động bằng trình duyệt headless trong môi trường đóng gói nhưng trình duyệt bị chặn truy cập localhost (`ERR_BLOCKED_BY_ADMINISTRATOR`). Vì vậy **chưa xác minh đầy đủ UI end-to-end trực tiếp trên trình duyệt**; cần nhóm thử thủ công trên MacBook.
 - Các test tích hợp Sprint 4 có dữ liệu tạm riêng, không đụng cơ sở dữ liệu ServiceHub thật.
 
 Kết quả này **không chứng minh production-ready, chịu tải hay bảo mật hoàn toàn**.
-
-
-## VietQR (nâng cấp sau Sprint 4)
-
-Đã bổ sung `tests/test_bank_qr.py`: kiểm tra tạo QR với dữ liệu nhận giả, xác thực, phân quyền, chống tạo yêu cầu trùng, số tiền không hợp lệ, mã giao dịch ngân hàng không được dùng hai lần, từ chối/xác nhận thủ công và **không tự cộng ví demo**. Chạy `python3 scripts/run_checks.py` để lấy kết quả mới nhất. Các test **không thực hiện giao dịch ngân hàng thật**; giao diện vẫn cần kiểm tra trên trình duyệt thực tế.

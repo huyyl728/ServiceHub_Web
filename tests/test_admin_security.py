@@ -82,7 +82,6 @@ class AdminSecurityTests(unittest.TestCase):
             for email,password in zip(server.LEGACY_DEMO_EMAILS,legacy_passwords):
                 uid=c.execute('INSERT INTO users(name,email,password_hash,is_admin) VALUES(?,?,?,?)',
                               ('Legacy',email,server.hash_password(password),int(email.startswith('admin@')))).lastrowid
-                c.execute('INSERT INTO wallets(user_id,balance) VALUES(?,123456)',(uid,))
                 token=secrets.token_urlsafe(20);tokens.append(token)
                 c.execute('INSERT INTO sessions VALUES(?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),uid,'2099-01-01T00:00:00+00:00'))
         self.provision()
@@ -91,7 +90,6 @@ class AdminSecurityTests(unittest.TestCase):
             self.assertEqual(self.request('/api/me',token=token)[0],401)
         with server.connect() as c:
             self.assertEqual(c.execute('SELECT COUNT(*) FROM users WHERE login_enabled=0').fetchone()[0],3)
-            self.assertEqual(c.execute('SELECT SUM(balance) FROM wallets').fetchone()[0],3*123456)
             self.assertEqual(c.execute('SELECT COUNT(*) FROM users WHERE is_admin=1').fetchone()[0],1)
 
     def test_disabled_account_stays_blocked_even_with_a_new_session(self):
@@ -115,7 +113,6 @@ class AdminSecurityTests(unittest.TestCase):
             c.execute("DELETE FROM app_settings WHERE key='demo_logins_retired_v1'")
             uid=c.execute('INSERT INTO users(name,email,password_hash,is_admin) VALUES(?,?,?,1)',
                           ('Old Admin','admin@servicehub.local',server.hash_password('Admin@12345'))).lastrowid
-            c.execute('INSERT INTO wallets(user_id,balance) VALUES(?,100)',(uid,))
         self.provision('admin@servicehub.local')
         self.assertEqual(self.login('admin@servicehub.local','Admin@12345')[0],401)
         self.assertEqual(self.login('admin@servicehub.local','Private-Test-Password-123!')[0],200)
