@@ -6,9 +6,7 @@
 
 ## Quyết định thay đổi phạm vi sau Sprint Review
 
-Theo góp ý của giảng viên, ServiceHub **không tiếp tục phát triển thanh toán, ví và VietQR**. Dự án tập trung vào tìm kiếm, đặt lịch, quản lý lịch, đánh giá/bình luận cửa hàng – dịch vụ và quản trị thống kê từng cơ sở.
 
-**Lịch sử:** Sprint 4 cũ từng có các Issue #16–#20 về hội viên, ví demo, VietQR, thông báo và test. Các Issue đó đã đóng, được giữ nguyên để thể hiện lịch sử phát triển; **không phải backlog Sprint 4 điều chỉnh**. Không xóa commit hoặc dữ liệu ngân hàng trước khi rà soát/sao lưu. Việc ẩn/ngừng luồng thanh toán là công việc mới, hiện chưa triển khai.
 
 ## Kế hoạch Sprint (bản mới)
 
@@ -23,11 +21,9 @@ Theo góp ý của giảng viên, ServiceHub **không tiếp tục phát triển
 
 ## Sprint 4 điều chỉnh — Backlog và Acceptance Criteria
 
-**Sprint Goal:** Khách hàng có thể đánh giá sau khi lịch đặt hoàn thành; Admin xem chi tiết từng cửa hàng: lịch đặt, dịch vụ, sao và bình luận. Luồng đặt lịch không còn phụ thuộc thanh toán.
 
 | Mã | Issue | Mục tiêu |
 |---|---|---|
-| S4R-01 | [#32](https://github.com/huyyl728/ServiceHub_Web/issues/32) | Bỏ thanh toán khỏi luồng đặt lịch; không xóa dữ liệu lịch sử tùy tiện |
 | S4R-02 | [#33](https://github.com/huyyl728/ServiceHub_Web/issues/33) | Thiết kế SQLite và API đánh giá cửa hàng/dịch vụ |
 | S4R-03 | [#34](https://github.com/huyyl728/ServiceHub_Web/issues/34) | Form sao và bình luận cho khách có lịch hoàn thành |
 | S4R-04 | [#35](https://github.com/huyyl728/ServiceHub_Web/issues/35) | Hiển thị rating và nhận xét theo đúng cửa hàng/dịch vụ |
@@ -44,7 +40,6 @@ Theo góp ý của giảng viên, ServiceHub **không tiếp tục phát triển
 
 ## Sprint 5 và 6
 
-- **Sprint 5:** Chạy 20 test case, kiểm thử trên điện thoại, kiểm tra bảo mật, Docker/LAN và kiểm thử hồi quy; điều chỉnh bộ test để không còn kỳ vọng thanh toán.
 - **Sprint 6:** Kiểm thử end-to-end Customer → Owner → Admin, tài liệu sử dụng, báo cáo Sprint và buổi demo/đánh giá cuối kỳ.
 
 ## Definition of Done

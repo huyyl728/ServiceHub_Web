@@ -3,7 +3,7 @@
 Run: python3 server.py. No third-party packages required.
 """
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs, urlencode
+from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 import sqlite3, json, secrets, hashlib, hmac, os, mimetypes, traceback, logging, time, re, shlex
 from datetime import datetime, timedelta, timezone
@@ -50,27 +50,6 @@ PORT = int(os.environ.get('SERVICEHUB_PORT') or os.environ.get('SERVICEHUB_HOST_
 ADMIN_EMAIL = os.environ.get('SERVICEHUB_ADMIN_EMAIL', '').strip().lower()
 ADMIN_PASSWORD = os.environ.get('SERVICEHUB_ADMIN_PASSWORD', '')
 LEGACY_DEMO_EMAILS = ('admin@servicehub.local', 'huy@servicehub.local', 'owner@servicehub.local')
-# Bank details are configured locally; this source archive contains no receiving account.
-BANK_QR_ENABLED = os.environ.get('SERVICEHUB_ENABLE_BANK_QR', '0') == '1'
-BANK_BIN = os.environ.get('SERVICEHUB_BANK_BIN', '').strip()
-BANK_ACCOUNT = os.environ.get('SERVICEHUB_BANK_ACCOUNT', '').strip()
-BANK_NAME = os.environ.get('SERVICEHUB_BANK_NAME', '').strip()
-def bank_qr_configuration_issues():
-    """Explain missing QR settings without exposing sensitive values."""
-    issues=[]
-    if not BANK_QR_ENABLED:
-        issues.append('Chức năng QR đang tắt: đặt SERVICEHUB_ENABLE_BANK_QR=1 trong .env.')
-    if not (BANK_BIN.isascii() and BANK_BIN.isdigit() and len(BANK_BIN)==6):
-        issues.append('SERVICEHUB_BANK_BIN phải là mã BIN ngân hàng gồm 6 chữ số (VietinBank: 970415).')
-    if not (BANK_ACCOUNT.isascii() and BANK_ACCOUNT.isdigit() and 6<=len(BANK_ACCOUNT)<=19):
-        issues.append('SERVICEHUB_BANK_ACCOUNT phải là số tài khoản hợp lệ, chỉ gồm 6–19 chữ số.')
-    if not (5<=len(BANK_NAME)<=60 and all(ch.isalpha() or ch==' ' for ch in BANK_NAME)):
-        issues.append('SERVICEHUB_BANK_NAME phải là tên chủ tài khoản hợp lệ (5–60 ký tự, chỉ chữ và khoảng trắng).')
-    return issues
-
-BANK_QR_ISSUES = bank_qr_configuration_issues()
-BANK_QR_CONFIGURED = not BANK_QR_ISSUES
-
 # Base64 expands a 5 MiB image to ~6.67 MiB; leave room for JSON overhead.
 MAX_BODY = 8 * 1024 * 1024
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -86,14 +65,6 @@ def connect():
 
 def now_iso(): return datetime.now(timezone.utc).isoformat(timespec='seconds')
 
-def bank_qr_data(request):
-    """Return a VietQR Quick Link for a pending request, never payment confirmation."""
-    result = dict(request)
-    if BANK_QR_CONFIGURED and result.get('status') == 'pending':
-        # VietQR Quick Link sends these public recipient details to img.vietqr.io.
-        params = urlencode({'amount':result['amount'],'addInfo':result['reference'], 'accountName':BANK_NAME})
-        result['qr_url'] = f'https://img.vietqr.io/image/{BANK_BIN}-{BANK_ACCOUNT}-compact2.png?{params}'
-    return result
 
 def hash_password(password, salt=None):
     salt = salt or secrets.token_bytes(16)
@@ -115,38 +86,8 @@ def notify(conn, user_id, title, message):
                  (user_id, title[:120], message[:500]))
 
 
-def credit_bank_qr(conn, request):
-    """Credit a confirmed request once, inside the caller's IMMEDIATE transaction."""
-    if request['status'] != 'confirmed':
-        return False
-    if conn.execute("SELECT 1 FROM wallet_transactions WHERE kind='bank_qr_topup' AND reference=?",
-                    (request['reference'],)).fetchone():
-        return False
-    updated = conn.execute('UPDATE wallets SET balance=balance+? WHERE user_id=?',
-                           (request['amount'], request['user_id']))
-    if updated.rowcount != 1:
-        raise APIError(404, 'WALLET_NOT_FOUND', 'Không tìm thấy ví người dùng.')
-    conn.execute("INSERT INTO wallet_transactions(user_id,amount,kind,description,reference) VALUES(?,?,'bank_qr_topup','Nạp ví qua chuyển khoản đã đối soát',?)",
-                 (request['user_id'], request['amount'], request['reference']))
-    audit(conn, request['user_id'], 'wallet_bank_qr_topup', 'bank_qr', request['id'],
-          'reference='+request['reference']+'; amount='+str(request['amount']))
-    notify(conn, request['user_id'], 'Đã cộng tiền vào ví',
-           f'Yêu cầu {request["reference"]} đã đối soát; đã cộng {request["amount"]:,} VNĐ vào ví ServiceHub.')
-    return True
 
 
-def repair_bank_qr_credits():
-    """Backfill confirmations from older versions; safe to run on every startup."""
-    with connect() as c:
-        c.execute('BEGIN IMMEDIATE')
-        rows = c.execute("""SELECT r.* FROM bank_qr_requests r
-            WHERE r.status='confirmed' AND NOT EXISTS (
-                SELECT 1 FROM wallet_transactions t
-                WHERE t.kind='bank_qr_topup' AND t.reference=r.reference)
-            ORDER BY r.id""").fetchall()
-        for row in rows:
-            credit_bank_qr(c, row)
-        return len(rows)
 
 
 def configure_admin():
@@ -182,7 +123,6 @@ def configure_admin():
             else:
                 uid=c.execute('INSERT INTO users(name,email,password_hash,is_admin) VALUES(?,?,?,1)',
                               ('Quản trị ServiceHub',ADMIN_EMAIL,hash_password(ADMIN_PASSWORD))).lastrowid
-                c.execute('INSERT INTO wallets(user_id,balance) VALUES(?,0)',(uid,))
                 audit(c,None,'admin_account_created','user',uid)
 
 
@@ -208,8 +148,6 @@ def seed():
             c.execute('ALTER TABLE users ADD COLUMN login_enabled INTEGER NOT NULL DEFAULT 1')
         c.commit()
     configure_admin()
-
-    repair_bank_qr_credits()
 
 class APIError(Exception):
     def __init__(self, status, code, message): self.status,self.code,self.message=status,code,message
@@ -279,6 +217,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(status); self.send_header('Content-Type',ctype + ('; charset=utf-8' if ctype.startswith('text/') or 'javascript' in ctype else '')); self.send_header('Content-Length',str(len(data))); self.send_header('X-Content-Type-Options','nosniff'); self.end_headers(); self.wfile.write(data)
         except Exception: self.send_json(404,{'success':False,'error':{'code':'NOT_FOUND','message':'Không tìm thấy tệp.'}})
     def api(self,method,p):
+
         # Public catalog
         if method=='GET' and p=='/api/health': return self.send_json(200,{'success':True,'data':{'status':'ok','database':str(DB_PATH.name)}})
         if method=='GET' and p.startswith('/api/businesses/') and p!='/api/businesses/managed':
@@ -309,7 +248,7 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as c:
                 try: cur=c.execute('INSERT INTO users(name,email,phone,password_hash) VALUES(?,?,?,?)',(name,email,phone,hash_password(pw)))
                 except sqlite3.IntegrityError: raise APIError(409,'EMAIL_EXISTS','Email này đã được đăng ký.')
-                uid=cur.lastrowid; c.execute('INSERT INTO wallets(user_id,balance) VALUES(?,0)',(uid,)); c.commit()
+                uid=cur.lastrowid; c.commit()
             return self.login_user(uid)
         if method=='POST' and p=='/api/auth/login':
             d=self.body(); email=str(d.get('email','')).strip().lower(); pw=str(d.get('password',''))
@@ -326,13 +265,11 @@ class Handler(BaseHTTPRequestHandler):
         user=self.auth() if p not in ('/api/auth/register','/api/auth/login','/api/health','/api/services','/api/categories') else None
         if method=='GET' and p=='/api/me':
             with connect() as c:
-                wallet=c.execute('SELECT balance FROM wallets WHERE user_id=?',(user['id'],)).fetchone()
                 apps=[dict(r) for r in c.execute('SELECT * FROM business_applications WHERE user_id=? ORDER BY id DESC',(user['id'],))]
                 businesses=[dict(r) for r in c.execute('SELECT * FROM businesses WHERE owner_id=?',(user['id'],))]
                 memberships=[dict(r) for r in c.execute('SELECT um.points,um.program_id,mp.name,mp.business_id,b.name business_name FROM user_memberships um JOIN membership_programs mp ON mp.id=um.program_id LEFT JOIN businesses b ON b.id=mp.business_id WHERE um.user_id=?',(user['id'],))]
-                transactions=[dict(r) for r in c.execute('SELECT * FROM wallet_transactions WHERE user_id=? ORDER BY id DESC LIMIT 20',(user['id'],))]
             safe={k:user[k] for k in ('id','name','email','phone','address','is_admin','created_at')}
-            return self.send_json(200,{'success':True,'data':{'user':safe,'wallet':wallet['balance'] if wallet else 0,'applications':apps,'businesses':businesses,'memberships':memberships,'transactions':transactions}})
+            return self.send_json(200,{'success':True,'data':{'user':safe,'applications':apps,'businesses':businesses,'memberships':memberships}})
         if method=='PUT' and p=='/api/me':
             d=self.body(); name=str(d.get('name','')).strip(); phone=str(d.get('phone','')).strip(); address=str(d.get('address','')).strip()
             if len(name)<2: raise APIError(400,'VALIDATION_ERROR','Họ tên phải có ít nhất 2 ký tự.')
@@ -560,177 +497,10 @@ class Handler(BaseHTTPRequestHandler):
                 notify(c,owner_id,'Khách hủy lịch',f'Lịch đặt #{bid} đã được khách hàng hủy.')
                 c.commit()
             return self.send_json(200,{'success':True,'message':'Đã hủy lịch đặt.'})
-        if method=='POST' and p=='/api/wallet/transfer':
-            d=self.body()
-            recipient_email=str(d.get('recipient_email','')).strip().lower()
-            request_id=str(d.get('request_id','')).strip()
-            raw_amount=d.get('amount',0)
-            if isinstance(raw_amount,bool) or str(raw_amount).strip()=='' or not str(raw_amount).strip().isdigit():
-                raise APIError(400,'INVALID_AMOUNT','Số tiền chuyển phải là số nguyên hợp lệ.')
-            amount=int(raw_amount)
-            if amount<1000 or amount>5000000: raise APIError(400,'INVALID_AMOUNT','Số tiền chuyển phải từ 1.000 đến 5.000.000 VNĐ.')
-            if not recipient_email or len(recipient_email)>254 or '@' not in recipient_email: raise APIError(400,'INVALID_RECIPIENT','Email người nhận không hợp lệ.')
-            if not request_id or len(request_id)>100 or any(ch not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_' for ch in request_id):
-                raise APIError(400,'INVALID_REQUEST_ID','Mã yêu cầu chuyển tiền không hợp lệ.')
-            with connect() as c:
-                c.execute('BEGIN IMMEDIATE')
-                prior=c.execute('SELECT * FROM wallet_transfers WHERE sender_id=? AND request_id=?',(user['id'],request_id)).fetchone()
-                if prior:
-                    retry_recipient=c.execute('SELECT id FROM users WHERE email=?',(recipient_email,)).fetchone()
-                    if int(prior['amount']) != amount or not retry_recipient or int(prior['recipient_id']) != int(retry_recipient['id']):
-                        raise APIError(409,'IDEMPOTENCY_KEY_REUSED','Mã yêu cầu này đã được dùng cho giao dịch khác. Hãy tạo yêu cầu mới.')
-                    wallet=c.execute('SELECT balance FROM wallets WHERE user_id=?',(user['id'],)).fetchone()
-                    c.commit()
-                    return self.send_json(200,{'success':True,'message':'Yêu cầu đã được xử lý trước đó; không trừ tiền lần hai.','data':{'transfer_id':prior['id'],'balance':wallet['balance'] if wallet else 0,'duplicate':True}})
-                recipient=c.execute('SELECT id,name,email FROM users WHERE email=?',(recipient_email,)).fetchone()
-                if not recipient: raise APIError(404,'RECIPIENT_NOT_FOUND','Không tìm thấy tài khoản người nhận.')
-                if recipient['id']==user['id']: raise APIError(400,'SELF_TRANSFER','Bạn không thể chuyển tiền cho chính mình.')
-                sender_wallet=c.execute('SELECT balance FROM wallets WHERE user_id=?',(user['id'],)).fetchone()
-                recipient_wallet=c.execute('SELECT balance FROM wallets WHERE user_id=?',(recipient['id'],)).fetchone()
-                if not sender_wallet or not recipient_wallet: raise APIError(404,'WALLET_NOT_FOUND','Không tìm thấy ví người gửi hoặc người nhận.')
-                if sender_wallet['balance']<amount: raise APIError(400,'INSUFFICIENT_BALANCE','Số dư ví không đủ.')
-                c.execute('UPDATE wallets SET balance=balance-? WHERE user_id=?',(amount,user['id']))
-                c.execute('UPDATE wallets SET balance=balance+? WHERE user_id=?',(amount,recipient['id']))
-                cur=c.execute("INSERT INTO wallet_transfers(sender_id,recipient_id,amount,request_id,status) VALUES(?,?,?,?,'completed')",(user['id'],recipient['id'],amount,request_id))
-                transfer_id=cur.lastrowid; reference='TRANSFER-'+str(transfer_id)
-                c.execute("INSERT INTO wallet_transactions(user_id,amount,kind,description,reference) VALUES(?,?,'transfer_sent',?,?,?)".replace("VALUES(?,?,'transfer_sent',?,?,?)","VALUES(?,?,'transfer_sent',?,?)"),(user['id'],-amount,'Chuyển ví đến '+recipient['email'],reference))
-                c.execute("INSERT INTO wallet_transactions(user_id,amount,kind,description,reference) VALUES(?,?,'transfer_received',?,?)",(recipient['id'],amount,'Nhận chuyển ví từ '+user['email'],reference))
-                audit(c,user['id'],'wallet_transfer_sent','wallet_transfer',transfer_id,'recipient_id='+str(recipient['id'])+'; amount='+str(amount))
-                audit(c,recipient['id'],'wallet_transfer_received','wallet_transfer',transfer_id,'sender_id='+str(user['id'])+'; amount='+str(amount))
-                notify(c,user['id'],'Chuyển ví demo thành công',f'Đã chuyển {amount:,} VNĐ mô phỏng tới {recipient["name"]}.')
-                notify(c,recipient['id'],'Đã nhận số dư demo',f'Bạn đã nhận {amount:,} VNĐ mô phỏng từ {user["name"]}.')
-                balance=c.execute('SELECT balance FROM wallets WHERE user_id=?',(user['id'],)).fetchone()['balance']
-                c.commit()
-            return self.send_json(200,{'success':True,'message':'Đã chuyển số dư demo trong ServiceHub. Đây không phải chuyển khoản ngân hàng.','data':{'transfer_id':transfer_id,'balance':balance,'recipient':{'name':recipient['name'],'email':recipient['email']},'amount':amount,'duplicate':False}})
-        # Creating a QR never credits a wallet; verified admin confirmation does.
-        if method=='GET' and p=='/api/bank-qr/config':
-            data={'configured':bool(BANK_QR_CONFIGURED), 'issues':BANK_QR_ISSUES,
-                  'bank_bin':BANK_BIN if BANK_QR_CONFIGURED else '',
-                  'account_number':BANK_ACCOUNT if BANK_QR_CONFIGURED else '',
-                  'account_name':BANK_NAME if BANK_QR_CONFIGURED else ''}
-            return self.send_json(200,{'success':True,'data':data})
-        if method=='POST' and p=='/api/bank-qr/requests':
-            if not BANK_QR_CONFIGURED:
-                raise APIError(503,'BANK_QR_NOT_CONFIGURED','QR chưa sẵn sàng: ' + ' '.join(BANK_QR_ISSUES))
-            d=self.body(); raw=d.get('amount')
-            if isinstance(raw,bool) or not str(raw or '').isdigit():
-                raise APIError(400,'INVALID_AMOUNT','Nhập số tiền nguyên hợp lệ.')
-            amount=int(raw)
-            if amount<10000 or amount>5000000:
-                raise APIError(400,'INVALID_AMOUNT','Số tiền từ 10.000 đến 5.000.000 VNĐ.')
-            key=str(d.get('request_id','')).strip()
-            if not (8<=len(key)<=100 and all(ch in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_' for ch in key)):
-                raise APIError(400,'INVALID_REQUEST_ID','Mã yêu cầu không hợp lệ.')
-            with connect() as c:
-                c.execute('BEGIN IMMEDIATE')
-                existing=c.execute('SELECT * FROM bank_qr_requests WHERE user_id=? AND request_id=?',(user['id'],key)).fetchone()
-                if existing:
-                    if existing['amount']!=amount: raise APIError(409,'REQUEST_CONFLICT','Mã yêu cầu đã sử dụng với số tiền khác.')
-                    c.commit()
-                    return self.send_json(200,{'success':True,'message':'Đã có yêu cầu này; không tạo trùng.','data':bank_qr_data(existing)})
-                ref='SH'+secrets.token_hex(6).upper()
-                cur=c.execute('INSERT INTO bank_qr_requests(user_id,amount,reference,request_id) VALUES(?,?,?,?)',
-                              (user['id'],amount,ref,key))
-                request=c.execute('SELECT * FROM bank_qr_requests WHERE id=?',(cur.lastrowid,)).fetchone()
-                audit(c,user['id'],'bank_qr_created','bank_qr',request['id'],'amount='+str(amount))
-                c.commit()
-            return self.send_json(201,{'success':True,'message':'Đã tạo hướng dẫn chuyển khoản. Chưa có khoản tiền nào được xác nhận.','data':bank_qr_data(request)})
-        if method=='GET' and p=='/api/bank-qr/requests/me':
-            with connect() as c:
-                rows=[dict(x) for x in c.execute('SELECT id,amount,reference,status,created_at,reviewed_at,admin_note FROM bank_qr_requests WHERE user_id=? ORDER BY id DESC LIMIT 25',(user['id'],))]
-            return self.send_json(200,{'success':True,'data':rows})
-        if method=='GET' and p=='/api/admin/bank-qr/requests':
-            self.admin(user)
-            with connect() as c:
-                rows=[dict(x) for x in c.execute('SELECT r.id,r.amount,r.reference,r.status,r.created_at,r.reviewed_at,r.bank_transaction_ref,r.admin_note,u.name customer_name,u.email customer_email FROM bank_qr_requests r JOIN users u ON u.id=r.user_id ORDER BY CASE WHEN r.status=\'pending\' THEN 0 ELSE 1 END,r.id DESC LIMIT 100')]
-            return self.send_json(200,{'success':True,'data':rows})
-        if method=='POST' and p.startswith('/api/admin/bank-qr/requests/'):
-            self.admin(user)
-            parts=p.strip('/').split('/')
-            if len(parts)!=6 or parts[:4]!=['api','admin','bank-qr','requests'] or parts[5] not in ('confirm','reject'):
-                raise APIError(404,'NOT_FOUND','Đường dẫn không hợp lệ.')
-            try: rid=int(parts[4]); assert rid>0
-            except (ValueError,AssertionError): raise APIError(400,'INVALID_ID','Mã yêu cầu không hợp lệ.')
-            action=parts[5]; d=self.body()
-            bank_reference=''; reason=''
-            if action=='confirm':
-                # Backend requires an explicit bank-statement reference and human verification.
-                bank_reference=str(d.get('bank_transaction_ref','')).strip()
-                if d.get('verified') is not True or not (6<=len(bank_reference)<=100) or not all(ch.isalnum() or ch in '-_' for ch in bank_reference):
-                    raise APIError(400,'BANK_VERIFICATION_REQUIRED','Cần kiểm tra sao kê và nhập mã giao dịch ngân hàng hợp lệ.')
-            else:
-                reason=str(d.get('reason','')).strip()
-                if not (5<=len(reason)<=400): raise APIError(400,'REASON_REQUIRED','Nhập lý do từ chối (ít nhất 5 ký tự).')
-            with connect() as c:
-                c.execute('BEGIN IMMEDIATE')
-                row=c.execute('SELECT * FROM bank_qr_requests WHERE id=?',(rid,)).fetchone()
-                if not row: raise APIError(404,'BANK_QR_NOT_FOUND','Không tìm thấy yêu cầu.')
-                if row['status']!='pending': raise APIError(409,'ALREADY_REVIEWED','Yêu cầu đã được xử lý trước đó.')
-                try:
-                    c.execute('UPDATE bank_qr_requests SET status=?,bank_transaction_ref=?,admin_note=?,reviewed_by=?,reviewed_at=? WHERE id=?',
-                              ('confirmed' if action=='confirm' else 'rejected',bank_reference or None,reason,user['id'],now_iso(),rid))
-                except sqlite3.IntegrityError:
-                    raise APIError(409,'BANK_TRANSACTION_DUPLICATE','Mã giao dịch ngân hàng đã được dùng cho yêu cầu khác.')
-                if action=='confirm':
-                    credit_bank_qr(c,c.execute('SELECT * FROM bank_qr_requests WHERE id=?',(rid,)).fetchone())
-                audit(c,user['id'],'bank_qr_'+('confirmed' if action=='confirm' else 'rejected'),'bank_qr',rid,'reference='+row['reference'])
-                if action=='reject':
-                    notify(c,row['user_id'],'Chuyển khoản cần kiểm tra lại',f'Yêu cầu {row["reference"]} bị từ chối: '+reason)
-                c.commit()
-            return self.send_json(200,{'success':True,'message':'Đã đối soát và cộng tiền vào ví ServiceHub.' if action=='confirm' else 'Đã từ chối yêu cầu chuyển khoản. Số dư ví không đổi.'})
         if method=='GET' and p=='/api/activity/me':
             with connect() as c:
                 rows=[dict(r) for r in c.execute('SELECT action,entity_type,entity_id,details,created_at FROM audit_logs WHERE actor_id=? ORDER BY id DESC LIMIT 100',(user['id'],))]
             return self.send_json(200,{'success':True,'data':rows})
-        if method=='POST' and p=='/api/wallet/topup':
-            d=self.body()
-            try:
-                raw_amount=d.get('amount',0)
-                # Reject blank, booleans, decimals and non-numeric values instead of returning a 500.
-                if isinstance(raw_amount, bool) or str(raw_amount).strip()=='' or not str(raw_amount).strip().isdigit():
-                    raise ValueError
-                amount=int(raw_amount)
-            except (TypeError, ValueError):
-                raise APIError(400,'INVALID_AMOUNT','Vui lòng nhập số tiền nguyên hợp lệ.')
-            if amount<10000 or amount>5000000: raise APIError(400,'INVALID_AMOUNT','Số tiền nạp demo phải từ 10.000 đến 5.000.000 VNĐ.')
-            request_key=str(d.get('request_id','')).strip()
-            if not request_key or len(request_key)>100 or any(ch not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_' for ch in request_key):
-                raise APIError(400,'INVALID_REQUEST_ID','Yêu cầu nạp tiền không hợp lệ. Hãy thử gửi lại.')
-            reference='TOPUP-'+str(user['id'])+'-'+request_key
-            with connect() as c:
-                # Serialize top-ups and make retries with the same request_id idempotent.
-                c.execute('BEGIN IMMEDIATE')
-                existing=c.execute("SELECT id FROM wallet_transactions WHERE user_id=? AND kind='topup' AND reference=?",(user['id'],reference)).fetchone()
-                if existing:
-                    wallet=c.execute('SELECT balance FROM wallets WHERE user_id=?',(user['id'],)).fetchone()
-                    c.commit()
-                    return self.send_json(200,{'success':True,'message':'Yêu cầu nạp này đã được xử lý trước đó; không cộng tiền lần hai.','data':{'balance':wallet['balance'] if wallet else 0,'duplicate':True}})
-                updated=c.execute('UPDATE wallets SET balance=balance+? WHERE user_id=?',(amount,user['id']))
-                if updated.rowcount != 1:
-                    raise APIError(404,'WALLET_NOT_FOUND','Không tìm thấy ví người dùng.')
-                c.execute("INSERT INTO wallet_transactions(user_id,amount,kind,description,reference) VALUES(?,?,'topup','Nạp tiền demo',?)",(user['id'],amount,reference))
-                audit(c,user['id'],'wallet_demo_topup','wallet',user['id'],'amount='+str(amount))
-                notify(c,user['id'],'Ví demo được cập nhật',f'Đã nạp mô phỏng {amount:,} VNĐ. Không phải tiền thật.')
-                wallet=c.execute('SELECT balance FROM wallets WHERE user_id=?',(user['id'],)).fetchone()
-                c.commit()
-            return self.send_json(200,{'success':True,'message':'Đã cộng số dư demo. Đây không phải giao dịch tiền thật.','data':{'balance':wallet['balance'],'duplicate':False}})
-        if method=='POST' and p.startswith('/api/bookings/') and p.endswith('/pay-wallet'):
-            bid=self.int_parts(p,2)
-            with connect() as c:
-                c.execute('BEGIN IMMEDIATE')  # Keep balance check and debit in one serialized transaction.
-                row=c.execute('SELECT * FROM bookings WHERE id=? AND user_id=?',(bid,user['id'])).fetchone()
-                if not row: raise APIError(404,'BOOKING_NOT_FOUND','Không tìm thấy lịch đặt.')
-                if row['status'] not in ('pending','confirmed'): raise APIError(409,'BOOKING_NOT_PAYABLE','Lịch đặt không thể thanh toán.')
-                if c.execute("SELECT id FROM wallet_transactions WHERE reference=?",('BOOKING-'+str(bid),)).fetchone(): raise APIError(409,'ALREADY_PAID','Lịch đặt đã được thanh toán bằng ví.')
-                wallet=c.execute('SELECT balance FROM wallets WHERE user_id=?',(user['id'],)).fetchone()
-                if not wallet or wallet['balance']<row['price']: raise APIError(400,'INSUFFICIENT_BALANCE','Số dư ví không đủ.')
-                c.execute('UPDATE wallets SET balance=balance-? WHERE user_id=?',(row['price'],user['id']))
-                c.execute("INSERT INTO wallet_transactions(user_id,amount,kind,description,reference) VALUES(?,?,'payment',?,?)",(user['id'],-row['price'],f'Thanh toán lịch đặt #{bid}','BOOKING-'+str(bid)))
-                c.execute("INSERT INTO payments(user_id,booking_id,amount,status,provider) VALUES(?,?,?,'succeeded','wallet')",(user['id'],bid,row['price']))
-                audit(c,user['id'],'booking_paid_with_demo_wallet','booking',bid,'amount='+str(row['price']))
-                notify(c,user['id'],'Đã thanh toán bằng ví demo',f'Đã thanh toán mô phỏng lịch đặt #{bid}.')
-                c.commit()
-            return self.send_json(200,{'success':True,'message':'Thanh toán demo bằng ví thành công.'})
         if method=='GET' and p=='/api/memberships/me':
             with connect() as c: rows=[dict(r) for r in c.execute('SELECT mp.*,b.name business_name,um.points,um.joined_at FROM membership_programs mp LEFT JOIN businesses b ON b.id=mp.business_id LEFT JOIN user_memberships um ON um.program_id=mp.id AND um.user_id=? WHERE mp.active=1',(user['id'],))]
             return self.send_json(200,{'success':True,'data':rows})
@@ -815,7 +585,6 @@ class Handler(BaseHTTPRequestHandler):
                     'active_services':c.execute("SELECT COUNT(*) FROM services s JOIN businesses b ON b.id=s.business_id WHERE s.active=1 AND b.status='active'").fetchone()[0],
                     'memberships':c.execute('SELECT COUNT(*) FROM user_memberships').fetchone()[0],
                     'booking_statuses':{r['status']:r['amount'] for r in booking_rows},
-                    'demo_wallet_payments':c.execute("SELECT COALESCE(SUM(amount),0) FROM payments WHERE provider='wallet' AND status='succeeded'").fetchone()[0],
                 }
             return self.send_json(200,{'success':True,'data':report})
         if method=='GET' and p=='/api/admin/audit':
@@ -859,9 +628,5 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__=='__main__':
     seed()
-    if BANK_QR_CONFIGURED:
-        logging.info('VietQR configured. Bank BIN: %s. Account details are not logged.', BANK_BIN)
-    else:
-        logging.warning('VietQR not configured: %s', ' '.join(BANK_QR_ISSUES))
     logging.info('ServiceHub running at http://%s:%s',HOST,PORT)
     ThreadingHTTPServer((HOST,PORT),Handler).serve_forever()

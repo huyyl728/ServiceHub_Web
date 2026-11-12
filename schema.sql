@@ -35,15 +35,6 @@ CREATE TABLE IF NOT EXISTS bookings (
  end_time TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', price INTEGER NOT NULL,
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-CREATE TABLE IF NOT EXISTS wallets (
- user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, balance INTEGER NOT NULL DEFAULT 0 CHECK(balance >= 0)
-);
-CREATE TABLE IF NOT EXISTS wallet_transactions (
- id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), amount INTEGER NOT NULL,
- kind TEXT NOT NULL, description TEXT NOT NULL, reference TEXT DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_bank_qr_credit
- ON wallet_transactions(reference) WHERE kind='bank_qr_topup';
 CREATE TABLE IF NOT EXISTS membership_programs (
  id INTEGER PRIMARY KEY AUTOINCREMENT, business_id INTEGER REFERENCES businesses(id) ON DELETE CASCADE,
  name TEXT NOT NULL, description TEXT DEFAULT '', points_per_currency INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1, benefits TEXT NOT NULL DEFAULT '', auto_approve_bookings INTEGER NOT NULL DEFAULT 0
@@ -64,38 +55,4 @@ CREATE INDEX IF NOT EXISTS idx_services_business ON services(business_id, active
 CREATE INDEX IF NOT EXISTS idx_bookings_user ON bookings(user_id, booking_date, start_time);
 CREATE INDEX IF NOT EXISTS idx_bookings_business ON bookings(business_id, booking_date, start_time);
 CREATE INDEX IF NOT EXISTS idx_applications_user ON business_applications(user_id, status);
-CREATE TABLE IF NOT EXISTS payments (
- id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id),
- booking_id INTEGER NOT NULL REFERENCES bookings(id), amount INTEGER NOT NULL, status TEXT NOT NULL,
- provider TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_booking_provider ON payments(booking_id, provider);
-
-CREATE TABLE IF NOT EXISTS wallet_transfers (
- id INTEGER PRIMARY KEY AUTOINCREMENT, sender_id INTEGER NOT NULL REFERENCES users(id), recipient_id INTEGER NOT NULL REFERENCES users(id),
- amount INTEGER NOT NULL CHECK(amount > 0), request_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'completed',
- created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(sender_id, request_id), CHECK(sender_id <> recipient_id)
-);
-CREATE INDEX IF NOT EXISTS idx_wallet_transfers_sender ON wallet_transfers(sender_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_wallet_transfers_recipient ON wallet_transfers(recipient_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs(actor_id, created_at DESC);
-
--- Bank-transfer QR requests: QR generation does not prove that funds arrived.
--- Verified admin confirmation credits the wallet once, with a matching ledger entry.
-CREATE TABLE IF NOT EXISTS bank_qr_requests (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- user_id INTEGER NOT NULL REFERENCES users(id),
- amount INTEGER NOT NULL CHECK(amount >= 10000 AND amount <= 5000000),
- reference TEXT NOT NULL UNIQUE,
- request_id TEXT NOT NULL,
- status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','confirmed','rejected')),
- bank_transaction_ref TEXT UNIQUE,
- reviewed_by INTEGER REFERENCES users(id),
- reviewed_at TEXT,
- admin_note TEXT NOT NULL DEFAULT '',
- created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
- UNIQUE(user_id, request_id)
-);
-CREATE INDEX IF NOT EXISTS idx_bank_qr_user ON bank_qr_requests(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_bank_qr_status ON bank_qr_requests(status, created_at DESC);
-

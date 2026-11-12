@@ -2,13 +2,10 @@
 
 Bản MVP chạy độc lập của ServiceHub: frontend HTML/CSS/JavaScript, backend API Python chuẩn và SQLite. Không cần cài thư viện Python bên ngoài.
 
-> **Phạm vi:** Đây là bản MVP học tập chạy local. Nạp ví là mô phỏng; chức năng VietQR tạo yêu cầu chuyển khoản ngân hàng nhưng không tự động xác minh tiền đã nhận. Chưa phù hợp đưa thẳng lên production. Trước khi triển khai công khai cần HTTPS, cấu hình secret/session, giới hạn đăng nhập, sao lưu, kiểm thử bảo mật, quy trình thanh toán thật và vận hành file storage.
 
 ## Quản lý dự án trên GitHub — 6 Sprint
 
 - [Kế hoạch 6 Sprint](docs/SPRINTS_1_TO_6.md)
-- [Hướng dẫn tạo repository Private, Milestone, Issue và commit/push code](docs/GITHUB_SETUP.md)
-- [Backlog 30 Issue dùng để tạo tự động](docs/GITHUB_BACKLOG.json)
 
 **Trạng thái:** mã nguồn hiện tại được phát triển đến Sprint 4; Sprint 5–6 là phần công việc tiếp theo cần nghiệm thu. Không coi test backend đạt đồng nghĩa toàn bộ UI đã qua test.
 
@@ -81,7 +78,6 @@ Admin riêng được cấu hình qua `SERVICEHUB_ADMIN_EMAIL` và `SERVICEHUB_A
 - `robots.txt` và tích hợp GA4 tùy chọn trong `static/js/analytics.js`; GA không chạy cho đến khi cấu hình Measurement ID và có consent.
 - Nội dung đánh giá, case study, đội ngũ và cơ sở được đánh dấu demo; không được xem là đánh giá hoặc doanh nghiệp đã xác minh.
 - Hồ sơ khách hàng có họ tên, email, số điện thoại và địa chỉ liên hệ; chủ cơ sở lưu/cập nhật tên, loại hình, địa chỉ, số điện thoại, mô tả và banner.
-- Ví demo, nạp số dư mô phỏng, chuyển số dư giữa tài khoản, xem lịch sử giao dịch/hoạt động, thanh toán bằng ví demo. Giao dịch chuyển dùng transaction và idempotency key; đây không phải tiền thật. Nạp ví được khóa giao dịch SQLite và dùng request ID để lần gửi lại cùng một yêu cầu không cộng tiền hai lần; đây không phải thanh toán tiền thật.
 - Chương trình hội viên nền tảng và chương trình riêng của cơ sở; tham gia chương trình.
 - Thông báo trong dữ liệu backend và thống kê cơ bản cho admin.
 - API health check tại `/api/health`.
@@ -95,7 +91,6 @@ Chạy `python3 scripts/run_checks.py`. Bộ test tự chạy server với tài 
 ```text
 ServiceHub_fullstack/
 ├── server.py                 # HTTP server, API routes, auth, business logic
-├── payment_providers.py      # Hợp đồng adapter để tích hợp cổng thanh toán tương lai
 ├── schema.sql                # Database tables, indexes and relationships
 ├── servicehub.db             # SQLite DB tự sinh khi chạy lần đầu
 ├── static/
@@ -114,7 +109,6 @@ ServiceHub_fullstack/
 │   ├── js/analytics.js       # GA4 tùy chọn, tắt mặc định
 │   └── uploads/              # Ảnh chủ cơ sở tải lên
 ├── tests/test_smoke.py       # Kiểm tra API cơ bản
-├── tests/test_wallet_transfer.py # Kiểm tra chuyển ví và chống giao dịch trùng
 └── README.md
 ```
 
@@ -125,7 +119,6 @@ ServiceHub_fullstack/
 - Tập trung logic gọi API: `static/js/api.js`.
 - Sửa giao diện và event handlers: `static/js/app.js`.
 - Kiểm tra lỗi trình duyệt: DevTools → Console và Network.
-- Kiểm tra lỗi backend: xem Terminal đang chạy server. Nếu nạp ví báo lỗi, kiểm tra số tiền trong khoảng 10.000–5.000.000 VNĐ và thử lại; cùng một yêu cầu gửi lại sẽ không được cộng tiền lần hai.
 - Kiểm tra dữ liệu: dùng SQLite browser hoặc chạy `sqlite3 servicehub.db` nếu máy đã có SQLite CLI.
 
 ## 6. API chính
@@ -140,20 +133,11 @@ ServiceHub_fullstack/
 - `GET /api/owner/bookings?business_id={id}`
 - `GET /api/services/{id}/availability?date=YYYY-MM-DD`
 - `POST /api/bookings`, `GET /api/bookings/me`, `POST /api/bookings/{id}/cancel`
-- `POST /api/bookings/{id}/pay-wallet`, `POST /api/wallet/topup`, `POST /api/wallet/transfer`
 - `GET /api/activity/me` (lịch sử hoạt động của tài khoản)
 - `GET /api/memberships/me`, `POST /api/memberships/{id}/join`, `GET /api/activity/me`
 - `POST /api/media/upload` (banner cơ sở), `POST /api/owner/services/{id}/image` (ảnh riêng từng dịch vụ), `GET /api/admin/stats`, `GET /api/health`
 
 Các API riêng tư dùng header `Authorization: Bearer <token>`.
-
-## 7. Ví demo, chuyển số dư và lộ trình sang thanh toán thật
-
-Hiện tại hệ thống hỗ trợ **chuyển số dư mô phỏng giữa các tài khoản ServiceHub**. Từ mục Tài khoản → Ví ServiceHub, nhập email tài khoản nhận và số tiền. Backend kiểm tra người nhận, chặn tự chuyển, kiểm tra số dư, xử lý trong một giao dịch SQLite và dùng `request_id` để chống trừ tiền hai lần khi gửi lại yêu cầu. Hai bên đều có bút toán lịch sử và bản ghi hoạt động. Các số dư seed ban đầu chỉ là dữ liệu demo; không có tiền thật được nạp hoặc chuyển.
-
-Thông tin khách hàng được lưu trong `users` (họ tên, email, số điện thoại, địa chỉ liên hệ); thông tin cơ sở lưu trong `businesses`; dịch vụ, giá, ảnh và lịch đặt nằm trong các bảng liên quan. Các hoạt động quan trọng được ghi vào `audit_logs` và người dùng xem được lịch sử của chính mình qua `/api/activity/me`.
-
-`payment_providers.py` tạo điểm mở rộng cho nhà cung cấp thanh toán sau này. Để chuyển sang B, cần chọn cổng thanh toán phù hợp, cấu hình khóa bí mật qua biến môi trường, tạo yêu cầu thanh toán phía server, xác minh chữ ký webhook, xử lý webhook idempotent, đối soát trạng thái và hoàn tiền. Không được đổi trạng thái thanh toán chỉ dựa vào redirect phía trình duyệt. Không dùng chức năng chuyển ví demo để đại diện cho chuyển khoản ngân hàng.
 
 ## 8. Lưu ý kiến trúc và bảo mật
 
@@ -164,7 +148,6 @@ Một số điểm production vẫn cần bổ sung trước khi mở công khai
 - Dùng framework web được duy trì và middleware bảo mật; giới hạn đăng nhập và chống brute force.
 - Thiết lập HTTPS, CORS/CSRF phù hợp, secret và session store an toàn.
 - Chuyển SQLite sang SQL Server/PostgreSQL khi triển khai nhiều người dùng.
-- Chuyển ví demo sang hệ thống thanh toán thật đã tích hợp và đối soát; hiện tại chưa có cổng thanh toán.
 - Lưu ảnh vào object storage, quét và kiểm tra nội dung tệp.
 - Thêm kiểm thử tự động đầy đủ, migrations, backup, monitoring và audit policy.
 - Review kỹ concurrency của đặt lịch và quyền truy cập trước khi public.
@@ -191,7 +174,6 @@ Một số điểm production vẫn cần bổ sung trước khi mở công khai
 Bản này kế thừa Sprint 1–3 và tính năng tư vấn ba câu hỏi. Các bổ sung:
 
 - **Thông báo trong tài khoản:** chuông hiển thị số chưa đọc; xem, đánh dấu một thông báo hoặc toàn bộ đã đọc. Có thông báo cho lịch đặt, hội viên, nạp/chuyển ví mô phỏng và thay đổi trạng thái cơ sở.
-- **Quản trị:** xem báo cáo số cơ sở/dịch vụ, tình trạng đặt lịch, lượt tham gia hội viên, tổng thanh toán ví demo; xem 50 bản ghi nhật ký gần nhất; tạm dừng/kích hoạt cơ sở. Tất cả API quản trị kiểm tra quyền admin ở server.
 - **Chủ cơ sở:** xem danh sách hội viên đã tham gia chương trình của cơ sở mình; API bảo đảm chỉ chủ sở hữu xem được.
 - **Kiểm thử Sprint 4:** thêm `tests/test_sprint4.py` với database SQLite tạm, script `scripts/run_checks.py`, CI GitHub Actions `.github/workflows/ci.yml`.
 - **Khắc phục:** đường dẫn `/api/businesses/managed` không còn bị route chi tiết cơ sở công khai chặn nhầm.
@@ -205,12 +187,3 @@ Bản này kế thừa Sprint 1–3 và tính năng tư vấn ba câu hỏi. Cá
 - Chạy Python riêng bản Sprint 4: `SERVICEHUB_PORT=8001 python3 server.py` rồi mở `http://127.0.0.1:8001`.
 - Chạy bằng Docker trên cổng 8001: `SERVICEHUB_HOST_PORT=8001 docker compose up -d --build`. Bên trong container vẫn là cổng 8000.
 - Nếu chạy nhiều phiên bản, dùng **database riêng** cho bản mới, không trỏ nhầm vào file của bản cũ. Không xóa Docker volume khi muốn giữ dữ liệu.
-
-
-## Nâng cấp VietQR — yêu cầu chuyển khoản ngân hàng (bản demo)
-
-- Thay giao diện **chuyển ví giữa các tài khoản** bằng **tạo VietQR số tiền + nội dung chuyển khoản** trong trang Tài khoản.
-- Tài khoản nhận cấu hình cục bộ qua các biến `SERVICEHUB_BANK_*` (xem `.env.example`), mặc định **tắt**. Không có số tài khoản thật trong mã nguồn.
-- Hệ thống ghi nhận yêu cầu `pending` và cho admin đối soát thủ công; **chỉ cộng ví sau khi admin xác nhận đối soát**, kèm lịch sử giao dịch và chống cộng trùng. Khi khởi động lại, server tự bổ sung các yêu cầu đã xác nhận ở phiên bản cũ nhưng chưa được cộng ví.
-- API ví demo cũ vẫn được giữ để đảm bảo khả năng tương thích với các bài kiểm thử cũ.
-- Đọc kỹ **`BANK_QR_GUIDE.md`** trước khi bật vì QR có thể được dùng để chuyển tiền thật.

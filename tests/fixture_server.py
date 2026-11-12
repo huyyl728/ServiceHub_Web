@@ -19,7 +19,6 @@ def seed_demo_data():
             ids={}
             for name,email,phone,pw,admin in users:
                 cur=c.execute('INSERT INTO users(name,email,phone,password_hash,is_admin) VALUES(?,?,?,?,?)',(name,email,phone,hash_password(pw),admin)); ids[email]=cur.lastrowid
-                c.execute('INSERT INTO wallets(user_id,balance) VALUES(?,?)',(cur.lastrowid,500000))
             cur=c.execute('INSERT INTO businesses(name,category,address,phone,description,owner_id,status) VALUES(?,?,?,?,?,?,?)',('Huy Football','Sân bóng','Cầu Giấy, Hà Nội','0987654321','Sân bóng mẫu để thử đặt lịch.',ids['owner@servicehub.local'],'active'))
             bid=cur.lastrowid
             samples=[('Sân bóng 5 người','Sân cỏ nhân tạo, đặt theo giờ.',250000,60,'Sân bóng'),('Cắt tóc cơ bản','Dịch vụ cắt tóc nam.',80000,30,'Làm đẹp'),('Chăm sóc da thư giãn','Liệu trình chăm sóc da cơ bản.',300000,60,'Spa'),('Bàn ăn 2 người','Đặt bàn tại nhà hàng đối tác.',0,90,'Nhà hàng')]

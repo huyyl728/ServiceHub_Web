@@ -91,7 +91,6 @@ class Sprint4IntegrationTests(unittest.TestCase):
             self.assertTrue(body['success'])
         report = self.request('/api/admin/reports', token=self.admin)[1]['data']
         self.assertGreaterEqual(report['active_services'], 1)
-        self.assertIn('demo_wallet_payments', report)
         self.assertIsInstance(report['booking_statuses'], dict)
 
     def test_business_moderation_and_catalog_visibility(self):
@@ -116,10 +115,14 @@ class Sprint4IntegrationTests(unittest.TestCase):
         self.assertTrue(any(s['business_id'] == bid for s in restored))
 
     def test_notifications_read_and_ownership(self):
-        key = 'sprint4-' + uuid.uuid4().hex
-        code, body = self.request('/api/wallet/topup', 'POST',
-                                  {'amount': 10000, 'request_id': key}, self.customer)
-        self.assertEqual(code, 200, body)
+        services = self.request('/api/services')[1]['data']
+        service = next(x for x in services if x['business_name'] == 'Huy Football')
+        date = (datetime.now() + timedelta(days=21)).strftime('%Y-%m-%d')
+        slots = self.request(f'/api/services/{service["id"]}/availability?date={date}', token=self.customer)[1]['data']
+        self.assertTrue(slots)
+        code, booking = self.request('/api/bookings', 'POST', {
+            'service_id': service['id'], 'date': date, 'start_time': slots[-1]['start_time']}, self.customer)
+        self.assertEqual(code, 201, booking)
         notifications = self.request('/api/notifications', token=self.customer)[1]['data']
         self.assertTrue(notifications)
         nid = notifications[0]['id']
@@ -128,17 +131,6 @@ class Sprint4IntegrationTests(unittest.TestCase):
         self.assertEqual(self.request('/api/notifications/read-all', 'POST', {}, self.customer)[0], 200)
         self.assertEqual(self.request('/api/notifications/unread-count', token=self.customer)[1]['data']['unread'], 0)
 
-    def test_topup_retry_does_not_duplicate_balance_or_notification(self):
-        key = 'sprint4-idempotent-' + uuid.uuid4().hex
-        before = self.request('/api/me', token=self.customer)[1]['data']['wallet']
-        payload = {'amount': 15000, 'request_id': key}
-        code, data = self.request('/api/wallet/topup', 'POST', payload, self.customer)
-        self.assertEqual(code, 200, data)
-        code, retry = self.request('/api/wallet/topup', 'POST', payload, self.customer)
-        self.assertEqual(code, 200, retry)
-        self.assertTrue(retry['data']['duplicate'])
-        after = self.request('/api/me', token=self.customer)[1]['data']['wallet']
-        self.assertEqual(after - before, 15000)
 
     def test_owner_memberships_are_scoped(self):
         owner_businesses = self.request('/api/businesses/managed', token=self.owner)[1]['data']
