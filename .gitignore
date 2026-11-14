@@ -27,3 +27,7 @@ static/uploads/*
 *.crt
 .idea/
 .vscode/
+
+# Local-only demo data and randomly generated credentials
+.local-demo/
+*demo-credentials*.json

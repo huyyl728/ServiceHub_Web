@@ -201,6 +201,7 @@ class Handler(BaseHTTPRequestHandler):
             if p == '/' or p == '/index.html': return self.serve(ROOT/'static'/'index.html')
             if p == '/robots.txt': return self.serve(ROOT/'static'/'robots.txt')
             if p in ('/privacy', '/privacy-policy'): return self.serve(ROOT/'static'/'privacy.html')
+            if p == '/terms': return self.serve(ROOT/'static'/'terms.html')
             if p in ('/thank-you', '/cam-on'): return self.serve(ROOT/'static'/'thank-you.html')
             if p == '/404.html': return self.serve(ROOT/'static'/'404.html')
             if p.startswith('/static/'): return self.serve(ROOT/p.lstrip('/'))
