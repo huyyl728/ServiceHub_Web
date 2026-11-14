@@ -24,7 +24,8 @@ def main():
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))
             port = sock.getsockname()[1]
-        env = dict(os.environ, SERVICEHUB_HOST='127.0.0.1', SERVICEHUB_PORT=str(port),
+        env = dict(os.environ, SERVICEHUB_ENV='test', SERVICEHUB_ADMIN_EMAIL='',
+                   SERVICEHUB_ADMIN_PASSWORD='', SERVICEHUB_HOST='127.0.0.1', SERVICEHUB_PORT=str(port),
                    SERVICEHUB_DB_PATH=str(Path(temp) / 'tests.db'),
                    SERVICEHUB_TEST_BASE=f'http://127.0.0.1:{port}')
         print('>>> Khởi động API thử nghiệm với cơ sở dữ liệu tạm', flush=True)
@@ -54,8 +55,8 @@ def main():
     # Node is only needed for development/test, not to run the website.
     import shutil
     if shutil.which('node'):
-        run(['node', '--check', 'static/js/app.js'])
-        run(['node', '--check', 'static/js/advisor.js'])
+        for script in sorted((ROOT / 'static/js').glob('*.js')):
+            run(['node', '--check', str(script.relative_to(ROOT))])
         run(['node', 'tests/test_advisor.js'])
     else:
         print('>>> Node.js không có; bỏ qua kiểm tra logic advisor JS.', flush=True)

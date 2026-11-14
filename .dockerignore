@@ -17,3 +17,7 @@ static/uploads/*
 tests/
 docs/qa/
 .DS_Store
+
+# Never package local demo databases or private credentials
+.local-demo/
+*demo-credentials*.json

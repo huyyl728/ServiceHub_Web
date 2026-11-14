@@ -5,10 +5,16 @@ Run: python3 server.py. No third-party packages required.
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
-import sqlite3, json, secrets, hashlib, hmac, os, mimetypes, traceback, logging, time, re, shlex
+import sqlite3, json, secrets, hashlib, hmac, os, mimetypes, traceback, logging, time, re, shlex, argparse, stat
 from datetime import datetime, timedelta, timezone
 
 ROOT = Path(__file__).resolve().parent
+START_OPTIONS = argparse.Namespace(local_demo=False, port=None)
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--local-demo', action='store_true', help='Private localhost demo: 1 Admin + 3 Customer + 3 Owner')
+    parser.add_argument('--port', type=int, help='HTTP port (overrides .env)')
+    START_OPTIONS = parser.parse_args()
 
 def load_local_env(path):
     """Read this project's .env for direct `python3 server.py` runs.
@@ -38,17 +44,44 @@ def load_local_env(path):
 # Running Python directly now loads .env automatically. Docker still passes its own
 # environment into the container, which takes priority over this local file.
 load_local_env(ROOT / '.env')
-DB_PATH = Path(os.environ.get('SERVICEHUB_DB_PATH', str(ROOT / 'servicehub.db'))).expanduser().resolve()
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-UPLOAD_DIR = ROOT / 'static' / 'uploads'
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-# SERVICEHUB_PORT sets the Python server port. Docker explicitly uses 8000 inside
-# the container, while SERVICEHUB_HOST_PORT maps the public host port.
-# Fallback supports running Python directly with a .env made for Docker Compose.
+DEMO_STORE = ROOT / '.local-demo'
+DEMO_CREDENTIALS = DEMO_STORE / 'credentials.json'
+DEMO_MARKER = 'local_demo_booking_only_v1'  # Compatible with PR #43 data.
+ENVIRONMENT = os.environ.get('SERVICEHUB_ENV', '').strip().lower()
+LOCAL_DEMO = START_OPTIONS.local_demo or ENVIRONMENT == 'local-demo'
 HOST = os.environ.get('SERVICEHUB_HOST', '127.0.0.1')
-PORT = int(os.environ.get('SERVICEHUB_PORT') or os.environ.get('SERVICEHUB_HOST_PORT') or '8000')
+PORT = START_OPTIONS.port if START_OPTIONS.port is not None else int(
+    os.environ.get('SERVICEHUB_PORT') or os.environ.get('SERVICEHUB_HOST_PORT') or '8000')
+DB_PATH = Path(os.environ.get('SERVICEHUB_DB_PATH') or ROOT / 'servicehub.db').expanduser().resolve()
 ADMIN_EMAIL = os.environ.get('SERVICEHUB_ADMIN_EMAIL', '').strip().lower()
 ADMIN_PASSWORD = os.environ.get('SERVICEHUB_ADMIN_PASSWORD', '')
+
+if not 1 <= PORT <= 65535:
+    raise RuntimeError('HTTP port must be between 1 and 65535.')
+if LOCAL_DEMO:
+    if ENVIRONMENT not in ('', 'development', 'local-demo') or any(
+        os.environ.get(key, '').strip().lower() not in ('', 'development', 'local', 'test')
+        for key in ('APP_ENV', 'NODE_ENV', 'ENVIRONMENT')
+    ) or any(os.environ.get(key) for key in (
+        'RENDER', 'RENDER_SERVICE_ID', 'VERCEL', 'DYNO', 'WEBSITE_SITE_NAME',
+        'RAILWAY_ENVIRONMENT', 'FLY_APP_NAME', 'K_SERVICE', 'AWS_EXECUTION_ENV',
+        'KUBERNETES_SERVICE_HOST',
+    )):
+        raise RuntimeError('Local demo refuses production, staging and hosting environments.')
+    if HOST not in ('127.0.0.1', 'localhost'):
+        raise RuntimeError('Local demo requires SERVICEHUB_HOST=127.0.0.1 (localhost only).')
+    if DEMO_STORE.is_symlink():
+        raise RuntimeError('Local demo directory must not be a symlink.')
+    demo_db = DEMO_STORE / 'servicehub-demo.db'
+    if os.environ.get('SERVICEHUB_DB_PATH') and DB_PATH != demo_db:
+        raise RuntimeError('Unset SERVICEHUB_DB_PATH for local demo; its database is fixed and separate.')
+    HOST, DB_PATH = '127.0.0.1', demo_db
+    # Real admin credentials must never be copied into the demo database.
+    ADMIN_EMAIL, ADMIN_PASSWORD = '', ''
+    os.umask(0o077)
+elif DB_PATH.is_relative_to(DEMO_STORE.resolve()):
+    raise RuntimeError('Demo database requires explicit --local-demo mode.')
+UPLOAD_DIR = ROOT / 'static' / 'uploads'
 LEGACY_DEMO_EMAILS = ('admin@servicehub.local', 'huy@servicehub.local', 'owner@servicehub.local')
 # Base64 expands a 5 MiB image to ~6.67 MiB; leave room for JSON overhead.
 MAX_BODY = 8 * 1024 * 1024
@@ -126,7 +159,7 @@ def configure_admin():
                 audit(c,None,'admin_account_created','user',uid)
 
 
-def seed():
+def initialize_schema():
     with connect() as c:
         c.executescript(SCHEMA)
         # Safe migrations for databases created by earlier project versions.
@@ -147,7 +180,136 @@ def seed():
         if 'login_enabled' not in user_columns:
             c.execute('ALTER TABLE users ADD COLUMN login_enabled INTEGER NOT NULL DEFAULT 1')
         c.commit()
+
+
+def seed():
+    if LOCAL_DEMO:
+        seed_local_demo()
+        return
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Even a relocated demo DB must not be started as the public application.
+    if DB_PATH.exists():
+        with sqlite3.connect(DB_PATH.as_uri() + '?mode=ro', uri=True) as c:
+            settings = c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='app_settings'").fetchone()
+            if settings and c.execute('SELECT 1 FROM app_settings WHERE key=?', (DEMO_MARKER,)).fetchone():
+                raise RuntimeError('Refusing a demo database outside explicit local-demo mode.')
+    initialize_schema()
     configure_admin()
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+DEMO_ADMIN = ('admin-demo@demo.servicehub.test', 'Admin Demo', 'admin')
+DEMO_CUSTOMERS = [
+    (f'customer{i:02d}@demo.servicehub.test', f'Khách hàng Demo {i}', 'customer')
+    for i in range(1, 4)
+]
+DEMO_OWNERS = [
+    (f'owner{i:02d}@demo.servicehub.test', f'Chủ cơ sở Demo {i}', 'owner')
+    for i in range(1, 4)
+]
+DEMO_USERS = [DEMO_ADMIN, *DEMO_CUSTOMERS, *DEMO_OWNERS]
+DEMO_BUSINESSES = [
+    ('Sân Thể Thao (Demo)', 'Thể thao', 'Cầu Giấy, Hà Nội', '/static/images/demo-sport.svg', [
+        ('Đặt sân 60 phút', 180000, 60), ('Đặt sân 90 phút', 250000, 90)]),
+    ('Mộc Hair (Demo)', 'Làm đẹp', 'Đống Đa, Hà Nội', '/static/images/demo-salon.svg', [
+        ('Cắt tóc cơ bản', 80000, 40), ('Gội đầu thư giãn', 90000, 45)]),
+    ('Bếp Việt (Demo)', 'Nhà hàng', 'Ba Đình, Hà Nội', '/static/images/demo-restaurant.svg', [
+        ('Đặt bàn hai người', 0, 90), ('Đặt bàn gia đình', 0, 120)]),
+]
+
+def check_demo_file(path):
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or (
+        os.name == 'posix' and info.st_mode & 0o077
+    ):
+        raise RuntimeError('Demo files must be private regular files (0600), without links.')
+
+
+def seed_local_demo():
+    """Provision once; validate existing PR #43 data without resetting user changes."""
+    if DEMO_STORE.is_symlink():
+        raise RuntimeError('Demo directory must not be a symlink.')
+    DEMO_STORE.mkdir(mode=0o700, exist_ok=True)
+    if os.name == 'posix' and DEMO_STORE.stat().st_mode & 0o077:
+        raise RuntimeError('Restrict .local-demo permissions to 0700 before starting.')
+    lock = DEMO_STORE / '.startup-lock'
+    try:
+        lock.mkdir(mode=0o700)
+    except FileExistsError:
+        raise RuntimeError('Demo initialization is locked. See docs/LOCAL_DEMO.md for recovery.') from None
+    try:
+        # Reject partial state and links before opening either file, never repair by overwriting.
+        for path in (DB_PATH, DEMO_CREDENTIALS):
+            if path.is_symlink():
+                raise RuntimeError('Demo files must not be symlinks.')
+            if path.exists():
+                check_demo_file(path)
+        if DB_PATH.exists() != DEMO_CREDENTIALS.exists():
+            raise RuntimeError('Demo database/credentials mismatch. Back up .local-demo; see docs/LOCAL_DEMO.md.')
+        first_run = not DB_PATH.exists()
+        if first_run:
+            credentials = {'notice': 'LOCAL ONLY. Never commit, share or reuse these passwords.',
+                           'users': [dict(email=e, name=n, role=r, password=secrets.token_urlsafe(24))
+                                     for e, n, r in DEMO_USERS]}
+            descriptor = os.open(DEMO_CREDENTIALS, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
+                json.dump(credentials, stream, ensure_ascii=False, indent=2)
+                stream.write('\n')
+            descriptor = os.open(DB_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            os.close(descriptor)
+            initialize_schema()
+            with connect() as c:
+                c.execute('BEGIN IMMEDIATE')
+                ids = {}
+                for item in credentials['users']:
+                    ids[item['email']] = c.execute(
+                        'INSERT INTO users(name,email,password_hash,is_admin) VALUES(?,?,?,?)',
+                        (item['name'], item['email'], hash_password(item['password']), int(item['role'] == 'admin'))
+                    ).lastrowid
+                for owner, (name, category, address, banner, services) in zip(DEMO_OWNERS, DEMO_BUSINESSES):
+                    owner_id = ids[owner[0]]
+                    bid = c.execute(
+                        'INSERT INTO businesses(name,category,address,phone,description,owner_id,status,banner_path) '
+                        'VALUES(?,?,?,?,?,?,?,?)',
+                        (name, category, address, '0000000000', 'Dữ liệu demo local.', owner_id, 'active', banner)
+                    ).lastrowid
+                    c.execute(
+                        'INSERT INTO business_applications(user_id,business_name,category,address,phone,description,status,reviewed_by,business_id) '
+                        'VALUES(?,?,?,?,?,?,?,?,?)',
+                        (owner_id, name, category, address, '0000000000', 'Dữ liệu demo local.', 'approved', ids[DEMO_ADMIN[0]], bid))
+                    for service_name, price, duration in services:
+                        c.execute(
+                            'INSERT INTO services(business_id,name,description,price,duration_minutes,category,image_path) VALUES(?,?,?,?,?,?,?)',
+                            (bid, service_name, 'Dịch vụ demo.', price, duration, category, banner))
+                c.execute('INSERT INTO app_settings(key,value) VALUES(?,?)', (DEMO_MARKER, 'local-only'))
+                c.execute("INSERT INTO app_settings(key,value) VALUES('demo_logins_retired_v1','done')")
+        else:
+            credentials = json.loads(DEMO_CREDENTIALS.read_text(encoding='utf-8'))
+            users = credentials.get('users') if isinstance(credentials, dict) else None
+            if not isinstance(users, list) or len(users) != len(DEMO_USERS) or not all(isinstance(u, dict) for u in users):
+                raise RuntimeError('Demo credentials must describe exactly seven accounts.')
+            by_email = {u.get('email'): u for u in users}
+            if set(by_email) != {e for e, _, _ in DEMO_USERS} or not all(
+                by_email[e].get('role') == role and isinstance(by_email[e].get('password'), str)
+                and len(by_email[e]['password']) >= 16 for e, _, role in DEMO_USERS
+            ) or len({u['password'] for u in users}) != len(DEMO_USERS):
+                raise RuntimeError('Demo credentials do not match the expected accounts or unique private passwords.')
+            # Read-only validation precedes migrations: never re-enable or promote accounts.
+            with sqlite3.connect(DB_PATH.as_uri() + '?mode=ro', uri=True) as c:
+                c.row_factory = sqlite3.Row
+                if not c.execute('SELECT 1 FROM app_settings WHERE key=? AND value=?', (DEMO_MARKER, 'local-only')).fetchone():
+                    raise RuntimeError('Database is not marked as local demo; refusing to modify it.')
+                for email, _, role in DEMO_USERS:
+                    row = c.execute('SELECT * FROM users WHERE email=?', (email,)).fetchone()
+                    if not row or not row['login_enabled'] or bool(row['is_admin']) != (role == 'admin') or not verify_password(
+                        by_email[email]['password'], row['password_hash']
+                    ):
+                        raise RuntimeError('Demo account differs from credentials; refusing to overwrite it.')
+            initialize_schema()
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        logging.info('LOCAL DEMO ONLY: 1 Admin + 3 Customer + 3 Owner. Private credentials: %s', DEMO_CREDENTIALS)
+    finally:
+        lock.rmdir()
+
 
 class APIError(Exception):
     def __init__(self, status, code, message): self.status,self.code,self.message=status,code,message
@@ -197,6 +359,15 @@ class Handler(BaseHTTPRequestHandler):
     def handle_request(self, method):
         p=self.route_path()
         try:
+            if LOCAL_DEMO:
+                allowed_hosts = {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
+                if self.server.server_port == 80:
+                    allowed_hosts.update(('127.0.0.1', 'localhost'))
+                origin = self.headers.get('Origin')
+                if self.client_address[0] != '127.0.0.1' or self.headers.get('Host', '').lower() not in allowed_hosts or any(
+                    h.lower() == 'forwarded' or h.lower().startswith('x-forwarded-') for h in self.headers
+                ) or (origin and origin.lower() not in {'http://' + h for h in allowed_hosts}):
+                    raise APIError(403, 'LOCAL_DEMO_ONLY', 'Demo chỉ dùng trực tiếp trên localhost, không qua proxy hoặc hosting.')
             if p.startswith('/api/'): return self.api(method,p)
             if p == '/' or p == '/index.html': return self.serve(ROOT/'static'/'index.html')
             if p == '/robots.txt': return self.serve(ROOT/'static'/'robots.txt')
@@ -628,6 +799,14 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json(200,{'success':True,'data':{'token':token,'user':dict(row)},'message':'Đăng nhập thành công.'})
 
 if __name__=='__main__':
-    seed()
-    logging.info('ServiceHub running at http://%s:%s',HOST,PORT)
-    ThreadingHTTPServer((HOST,PORT),Handler).serve_forever()
+    try:
+        # Bind before seeding: an occupied port must not create or modify any data.
+        with ThreadingHTTPServer((HOST, PORT), Handler) as http:
+            seed()
+            logging.info('ServiceHub running at http://%s:%s', HOST, PORT)
+            http.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
+        logging.error('Startup failed: %s. If the port is in use, retry with --port %s. See docs/LOCAL_DEMO.md.', exc, PORT + 1 if PORT < 65535 else 8001)
+        raise SystemExit(1)

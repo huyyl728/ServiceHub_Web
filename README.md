@@ -41,7 +41,19 @@ Cách nhanh: mở Terminal trong thư mục `ServiceHub-6-Sprints` và chạy `.
 4. Mở địa chỉ được in khi server chạy (mặc định <http://127.0.0.1:8000>; nếu dùng `.env.example` thiết lập cổng 8001 thì mở <http://127.0.0.1:8001>).
 5. Dừng server bằng `Control + C`.
 
-Lần chạy đầu tiên tự tạo `servicehub.db` và dữ liệu demo. Muốn reset dữ liệu demo, dừng server, xóa `servicehub.db`, rồi chạy lại `python3 server.py`.
+Chạy thường tự tạo schema trong `servicehub.db`, không tạo tài khoản demo. Không xóa database thật để sửa lỗi đăng nhập.
+
+Để chạy demo local với **1 Admin + 3 Customer + 3 Owner, 3 cơ sở và 6 dịch vụ**, dùng cùng ứng dụng:
+
+```bash
+python3 server.py --local-demo
+```
+
+Mở địa chỉ localhost được in trong Terminal. Email/mật khẩu ngẫu nhiên nằm trong `.local-demo/credentials.json` trên máy bạn; dùng form đăng nhập thông thường. Không đưa file này lên GitHub hoặc chia sẻ. SQLite riêng ở `.local-demo/servicehub-demo.db`; chạy lại giữ nguyên dữ liệu và mật khẩu.
+
+Nếu cổng bận: `python3 server.py --local-demo --port 8002`. Để chỉ cần chạy `python3 server.py` hoặc nút Run của trình soạn thảo, đặt `SERVICEHUB_ENV=local-demo` trong `.env` riêng trên máy. Không cấu hình `SERVICEHUB_DB_PATH` ở chế độ này. Xem [hướng dẫn demo local](docs/LOCAL_DEMO.md), bao gồm cách dùng dữ liệu đã tạo bằng PR #43.
+
+**Chế độ demo chỉ dành cho máy cá nhân qua localhost; không dùng Docker, proxy, tunnel, Render hoặc production.**
 
 ### Chạy bằng Docker (tùy chọn)
 
