@@ -125,6 +125,56 @@ class LocalDemoTests(unittest.TestCase):
             0
         )
 
+    def test_demo_disabled_in_production(self):
+        self.env['SERVICEHUB_ENV'] = 'production'
+
+        result = self.run_seed()
+
+        self.assertNotEqual(result.returncode, 0)
+
+        self.assertFalse(
+            (self.root / 'servicehub.db').exists()
+        )
+
+    def test_existing_demo_database_requires_demo_mode(self):
+        first = self.run_seed()
+
+        self.assertEqual(first.returncode, 0, first.stderr)
+
+        db = self.root / 'servicehub.db'
+        before = db.read_bytes()
+
+        self.env['SERVICEHUB_LOCAL_DEMO'] = '0'
+
+        result = self.run_seed()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(before, db.read_bytes())
+
+    def test_production_rejects_copied_demo_database(self):
+        first = self.run_seed()
+
+        self.assertEqual(first.returncode, 0, first.stderr)
+
+        copied_db = self.root / 'production.db'
+
+        shutil.copyfile(
+            self.root / 'servicehub.db',
+            copied_db
+        )
+
+        before = copied_db.read_bytes()
+
+        self.env.update({
+            'SERVICEHUB_ENV': 'production',
+            'SERVICEHUB_LOCAL_DEMO': '0',
+            'SERVICEHUB_DB_PATH': str(copied_db)
+        })
+
+        result = self.run_seed()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(before, copied_db.read_bytes())
 
 if __name__ == '__main__':
     unittest.main()

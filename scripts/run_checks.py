@@ -24,7 +24,10 @@ def main():
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))
             port = sock.getsockname()[1]
-        env = dict(os.environ, SERVICEHUB_HOST='127.0.0.1', SERVICEHUB_PORT=str(port),
+        env = dict(os.environ,
+           SERVICEHUB_LOCAL_DEMO='0',
+           SERVICEHUB_HOST='127.0.0.1',
+           SERVICEHUB_PORT=str(port),
                    SERVICEHUB_DB_PATH=str(Path(temp) / 'tests.db'),
                    SERVICEHUB_TEST_BASE=f'http://127.0.0.1:{port}')
         print('>>> Khởi động API thử nghiệm với cơ sở dữ liệu tạm', flush=True)

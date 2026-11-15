@@ -1,47 +1,54 @@
-# ServiceHub – dữ liệu demo chỉ trên máy cá nhân
+# ServiceHub — Chế độ Local Demo
 
-Dùng khi cần trình diễn tài khoản và chức năng đặt lịch. **Không dùng trên Render, hosting, mạng LAN công khai hoặc production.**
+## 1. Cấu hình môi trường
 
-## Chạy demo
+Tạo file `.env` từ `.env.example`.
 
-Mở Terminal tại gốc dự án:
-
-```sh
-python3 scripts/local_demo.py
+```dotenv
+SERVICEHUB_HOST=127.0.0.1
+SERVICEHUB_PORT=8000
+SERVICEHUB_ADMIN_EMAIL=admin@servicehub.local
+SERVICEHUB_ADMIN_PASSWORD=YOUR_PRIVATE_PASSWORD
+SERVICEHUB_LOCAL_DEMO=1
 ```
 
-Sau khi script khởi tạo, vào `http://127.0.0.1:8001`. Script tự sinh **3 Customer, 3 Owner, 1 Admin, 3 cơ sở và 6 dịch vụ** trên database độc lập `.local-demo/servicehub-demo.db`. Để xem email/mật khẩu riêng tư, mở file `.local-demo/credentials.json` **trên chính máy của bạn**. Không gửi file này cho người khác hoặc lên GitHub.
+Thay mật khẩu mẫu bằng mật khẩu riêng có tối thiểu 16 ký tự.
 
-Chạy lại lệnh trên không sinh thêm tài khoản hoặc thay đổi mật khẩu. Dừng server bằng `Control + C`.
+## 2. Khởi động dự án
 
-Nếu cổng 8001 đang được dùng:
-
-```sh
-python3 scripts/local_demo.py --port 8002
+```bash
+python3 server.py
 ```
 
-Nếu chỉ cần chuẩn bị dữ liệu, chưa chạy server:
+Hệ thống khởi tạo:
 
-```sh
-python3 scripts/local_demo.py --setup-only
+- 1 Admin cá nhân.
+- 3 Customer demo.
+- 3 Owner demo.
+- 3 cơ sở mẫu.
+- 6 dịch vụ mẫu.
+
+Tất cả sử dụng chung database `servicehub.db`.
+
+## 3. Thông tin đăng nhập
+
+Tài khoản Admin được cấu hình trong `.env`.
+
+Thông tin đăng nhập của sáu tài khoản demo nằm trong `.local-demo/main-credentials.json`.
+
+## 4. Kiểm thử tự động
+
+```bash
+python3 scripts/run_checks.py
 ```
 
-## Admin trong database thường (không phải demo)
+Bộ kiểm thử sử dụng database tạm thời, độc lập với database local.
 
-Nếu đang chạy bằng `python3 server.py`, cấu hình Admin riêng bằng:
+## 5. Bảo mật và triển khai
 
-```sh
-python3 scripts/setup_admin.py --email admin@servicehub.local
-```
-
-Script lưu mật khẩu mới tại `.env.admin` và cấu hình `.env` (chỉ máy local). Xem `docs/ADMIN_SETUP.md`. Đừng gửi file chứa mật khẩu lên chat, GitHub hoặc nơi công khai.
-
-**Quan trọng:** Admin local trong `servicehub.db`, tài khoản của Docker Volume, tài khoản Render, và tài khoản ở `.local-demo/servicehub-demo.db` là **những database khác nhau**. Tạo tài khoản ở database này không tự làm nó xuất hiện ở database khác.
-
-## Bảo vệ dữ liệu
-
-- Không xóa `servicehub.db` hay Docker Volume để “sửa lỗi” đăng nhập: có thể mất lịch sử người dùng.
-- Tài khoản demo cũ đã bị vô hiệu hóa; mật khẩu mới được sinh ngẫu nhiên, không khôi phục mật khẩu cũ.
-- Mọi file `.local-demo/` và `.env*` (trừ `.env.example`) nằm trong `.gitignore`.
-- Không chạy script trên máy chủ public; nó tự giới hạn địa chỉ `127.0.0.1`.
-- Chạy `python3 scripts/run_checks.py` để kiểm tra backend và JavaScript.
+- Không commit mật khẩu, file `.env` hoặc database cá nhân.
+- Không triển khai database chứa tài khoản demo lên production.
+- Không đưa server demo ra Internet bằng proxy hoặc tunnel.
+- Production phải sử dụng database riêng và `SERVICEHUB_LOCAL_DEMO=0`.
+- Giữ `SERVICEHUB_LOCAL_DEMO=1` khi tiếp tục sử dụng database demo local.
+- Script `scripts/local_demo.py` là phương thức demo độc lập cũ; không cần chạy khi sử dụng chế độ tích hợp mới.

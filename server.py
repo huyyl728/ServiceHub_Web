@@ -125,8 +125,70 @@ def configure_admin():
                               ('Quản trị ServiceHub',ADMIN_EMAIL,hash_password(ADMIN_PASSWORD))).lastrowid
                 audit(c,None,'admin_account_created','user',uid)
 
+def validate_demo_environment():
+    from contextlib import closing
+
+    enabled = os.environ.get('SERVICEHUB_LOCAL_DEMO') == '1'
+
+    environment = os.environ.get(
+        'SERVICEHUB_ENV', ''
+    ).strip().lower()
+
+    hosting_vars = (
+        'RENDER',
+        'RENDER_SERVICE_ID',
+        'VERCEL',
+        'DYNO',
+        'WEBSITE_SITE_NAME',
+        'RAILWAY_ENVIRONMENT',
+        'FLY_APP_NAME',
+        'K_SERVICE',
+        'AWS_EXECUTION_ENV',
+        'KUBERNETES_SERVICE_HOST'
+    )
+
+    local_allowed = (
+        HOST == '127.0.0.1'
+        and DB_PATH == (ROOT / 'servicehub.db').resolve()
+        and environment in ('', 'local', 'development', 'local-demo')
+        and not any(os.environ.get(x) for x in hosting_vars)
+    )
+
+    if enabled and not local_allowed:
+        raise RuntimeError(
+            'Chế độ demo chỉ được phép chạy trên local.'
+        )
+
+    if not DB_PATH.exists():
+        return
+
+    # Kiểm tra database mà không thay đổi dữ liệu
+    with closing(sqlite3.connect(
+        DB_PATH.as_uri() + '?mode=ro',
+        uri=True
+    )) as c:
+
+        has_settings = c.execute(
+            """SELECT 1 FROM sqlite_master
+               WHERE type='table'
+               AND name='app_settings'"""
+        ).fetchone()
+
+        if has_settings:
+            demo_marker = c.execute(
+                'SELECT 1 FROM app_settings WHERE key=?',
+                ('main_local_demo_v1',)
+            ).fetchone()
+
+            if demo_marker and not (enabled and local_allowed):
+                raise RuntimeError(
+                    'Database chứa dữ liệu demo. '
+                    'Không được sử dụng ngoài chế độ demo local.'
+                )
 
 def seed():
+    validate_demo_environment()
+
     with connect() as c:
         c.executescript(SCHEMA)
         # Safe migrations for databases created by earlier project versions.
