@@ -270,10 +270,204 @@
           .join("") ||
         '<p class="muted">Quán chưa thiết lập chương trình hội viên.</p>';
       host.innerHTML = `${photo}<p class="eyebrow">THÔNG TIN CƠ SỞ</p><h2 id="business-detail-title" data-business-id="${b.id}">${esc(b.name)}</h2><p class="business-detail-category">${esc(b.category)}</p><p>${esc(b.description || "Cơ sở chưa cập nhật phần giới thiệu.")}</p><div class="business-detail-contact"><p><b>Địa chỉ:</b> ${esc(b.address || "Chưa cập nhật")}</p><p><b>Điện thoại:</b> ${esc(b.phone || "Chưa cập nhật")}</p><a class="btn btn-outline btn-small" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(b.address || "")}" target="_blank" rel="noopener noreferrer">Xem bản đồ ↗</a></div><h3 class="detail-section-title">Dịch vụ và thực đơn</h3><div class="business-detail-services">${services}</div><h3 class="detail-section-title">Chương trình hội viên của quán</h3><p class="muted">Mỗi cơ sở có chương trình và quyền lợi riêng. Đăng nhập để tham gia và xem hội viên trong hồ sơ của bạn.</p><div class="business-memberships">${memberships}</div>`;
+      renderPublicReviews(host, b.id, d.services);
     } catch (e) {
       host.innerHTML = `<h2>Không tải được thông tin</h2><p class="muted">${esc(e.message)}</p>`;
     }
   }
+  // S4R-04: Hiển thị đánh giá cơ sở và dịch vụ
+function renderPublicReviews(host, businessId, services) {
+  const businessSection = document.createElement("section");
+
+  businessSection.className = "public-reviews";
+
+  host.querySelector(".business-detail-contact")
+    .after(businessSection);
+
+  // Hiển thị đánh giá của cơ sở
+  mountPublicReviewPanel(
+    businessSection,
+    "business_id",
+    businessId,
+    "Đánh giá cơ sở"
+  );
+
+  const cards = $$(".business-detail-service", host);
+
+  // Hiển thị đánh giá riêng của từng dịch vụ
+  services.forEach((service, index) => {
+    if (!cards[index]) return;
+
+    const details = document.createElement("details");
+    details.className = "service-review-details";
+
+    const summary = document.createElement("summary");
+
+    summary.textContent =
+      `Đánh giá dịch vụ: ${service.name}`;
+
+    const panel = document.createElement("section");
+    panel.className = "public-reviews";
+
+    details.append(summary, panel);
+    cards[index].after(details);
+
+    let loaded = false;
+
+    details.addEventListener("toggle", () => {
+      if (details.open && !loaded) {
+        loaded = true;
+
+        mountPublicReviewPanel(
+          panel,
+          "service_id",
+          service.id,
+          `Đánh giá dịch vụ: ${service.name}`
+        );
+      }
+    });
+  });
+}
+
+
+// S4R-04: Tải và hiển thị danh sách đánh giá
+function mountPublicReviewPanel(panel, field, id, title) {
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+
+  const stats = document.createElement("p");
+  stats.className = "public-review-stats";
+  stats.setAttribute("aria-live", "polite");
+
+  const list = document.createElement("div");
+  list.className = "public-review-list";
+
+  const pagination = document.createElement("div");
+  pagination.className = "public-review-pagination";
+
+  panel.append(heading, stats, list, pagination);
+
+  // Tải dữ liệu theo từng trang
+  async function loadPage(page) {
+    stats.textContent = "Đang tải đánh giá…";
+
+    list.replaceChildren();
+    pagination.replaceChildren();
+
+    try {
+      const { data } = await API.get(
+        `/api/reviews?${field}=${encodeURIComponent(id)}&page=${page}`
+      );
+
+      if (!panel.isConnected) return;
+
+      const count = Number(data.review_count);
+
+      // Điểm trung bình và tổng lượt đánh giá
+      stats.textContent =
+        count && data.average_rating !== null
+          ? `${Number(data.average_rating).toLocaleString(
+              "vi-VN",
+              { maximumFractionDigits: 2 }
+            )}/5 ★ · ${count} lượt đánh giá`
+          : "Chưa có đánh giá công khai";
+
+      if (!data.reviews.length && count) {
+        list.textContent =
+          "Không có đánh giá ở trang này.";
+      }
+
+      // Hiển thị từng đánh giá
+      data.reviews.forEach((review) => {
+        const article = document.createElement("article");
+        article.className = "public-review-item";
+
+        const customer = document.createElement("strong");
+
+        customer.textContent =
+          review.customer_name || "Khách hàng";
+
+        const rating = document.createElement("p");
+        rating.className = "public-review-stars";
+        rating.textContent = `${review.rating}/5 ★`;
+
+        const comment = document.createElement("p");
+        comment.className = "public-review-comment";
+
+        comment.textContent =
+          review.comment || "Không có bình luận.";
+
+        const date = document.createElement("small");
+        date.className = "muted";
+        date.textContent = review.created_at || "";
+
+        article.append(
+          customer,
+          rating,
+          comment,
+          date
+        );
+
+        list.append(article);
+      });
+
+      // Tính tổng số trang
+      const pages = Math.max(
+        1,
+        Math.ceil(count / Number(data.page_size))
+      );
+
+      if (pages > 1 || page > 1) {
+        const previous = pageButton(
+          "Trang trước",
+          page - 1,
+          page <= 1
+        );
+
+        const position = document.createElement("span");
+
+        position.textContent = `Trang ${page}/${pages}`;
+
+        const next = pageButton(
+          "Trang sau",
+          page + 1,
+          page >= pages
+        );
+
+        pagination.append(previous, position, next);
+      }
+
+    } catch (error) {
+      if (!panel.isConnected) return;
+
+      stats.textContent =
+        `Không tải được đánh giá: ${error.message}`;
+
+      pagination.append(
+        pageButton("Thử lại", page, false)
+      );
+    }
+  }
+
+  // Tạo nút chuyển trang
+  function pageButton(label, page, disabled) {
+    const button = document.createElement("button");
+
+    button.type = "button";
+    button.className = "btn btn-outline btn-small";
+
+    button.textContent = label;
+    button.disabled = disabled;
+
+    button.addEventListener("click", () => {
+      loadPage(page);
+    });
+
+    return button;
+  }
+
+  loadPage(1);
+}
   const SEARCH_GROUPS = [
     {
       label: "Quán ăn và nhà hàng",

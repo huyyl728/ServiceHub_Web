@@ -1,0 +1,77 @@
+/* S4R-04: Public business and service ratings */
+
+.public-reviews {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  min-width: 0;
+}
+
+.public-reviews h3,
+.public-reviews p {
+  margin: 0;
+}
+
+.public-reviews h3 {
+  font-size: 16px;
+}
+
+.public-review-stats {
+  font-weight: 700;
+  color: #855a00;
+}
+
+.public-review-list {
+  display: grid;
+  gap: 10px;
+}
+
+.public-review-item {
+  display: grid;
+  gap: 5px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.public-review-stars {
+  color: #855a00;
+  font-weight: 600;
+}
+
+.public-review-comment {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.public-review-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.public-review-pagination button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.service-review-details {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.service-review-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.service-review-details .public-reviews {
+  margin-bottom: 0;
+}
