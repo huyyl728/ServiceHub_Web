@@ -12,8 +12,12 @@ __pycache__/
 # Uploaded user images
 static/uploads/*
 !static/uploads/.gitkeep
+*.pyc
 
 # More local secrets, backups and SQLite sidecars
+.env
+.env.admin
+.env.*.bak
 .envrc
 *.db-*
 *.sqlite-*
@@ -31,3 +35,7 @@ static/uploads/*
 # Local-only demo data and randomly generated credentials
 .local-demo/
 *demo-credentials*.json
+*.db
+*.db-*
+*.sqlite
+*.sqlite3

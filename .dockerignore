@@ -17,3 +17,10 @@ static/uploads/*
 tests/
 docs/qa/
 .DS_Store
+
+.env
+.env.admin
+.env.*.bak
+.local-demo/
+*.db
+*.db-*

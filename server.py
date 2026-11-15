@@ -626,8 +626,159 @@ class Handler(BaseHTTPRequestHandler):
         with connect() as c:
             c.execute('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)',(token_hash,uid,expiry)); audit(c,uid,'login','session',uid); row=c.execute('SELECT id,name,email,phone,address,is_admin,created_at FROM users WHERE id=?',(uid,)).fetchone(); c.commit()
         return self.send_json(200,{'success':True,'data':{'token':token,'user':dict(row)},'message':'Đăng nhập thành công.'})
+def seed_local_demo():
 
+    # Chỉ chạy khi bật chế độ demo
+    if os.environ.get('SERVICEHUB_LOCAL_DEMO') != '1':
+        return
+
+    from contextlib import closing
+    from scripts.local_demo import (
+        CUSTOMERS, OWNERS, BUSINESSES,
+        private_json_write
+    )
+
+    # Không cho phép tạo demo khi triển khai public
+    hosting_vars = (
+        'RENDER', 'RENDER_SERVICE_ID', 'VERCEL',
+        'DYNO', 'WEBSITE_SITE_NAME'
+    )
+
+    if (
+        HOST != '127.0.0.1'
+        or DB_PATH != (ROOT / 'servicehub.db').resolve()
+        or any(os.environ.get(x) for x in hosting_vars)
+        or os.environ.get('SERVICEHUB_ENV', '').lower()
+        in ('production', 'prod')
+    ):
+        raise RuntimeError('Demo chỉ được phép chạy trên local.')
+
+    store = ROOT / '.local-demo'
+    store.mkdir(mode=0o700, exist_ok=True)
+    store.chmod(0o700)
+
+    credentials_path = store / 'main-credentials.json'
+    marker = 'main_local_demo_v1'
+
+    with closing(connect()) as c, c:
+        c.execute('BEGIN IMMEDIATE')
+
+        # Không tạo lại dữ liệu sau mỗi lần chạy
+        if c.execute(
+            'SELECT 1 FROM app_settings WHERE key=?',
+            (marker,)
+        ).fetchone():
+            logging.info('Dữ liệu demo local đã được khởi tạo.')
+            return
+
+        # Giữ nguyên Admin cá nhân
+        admin = c.execute(
+            '''SELECT id FROM users
+               WHERE email=? AND is_admin=1
+               AND login_enabled=1''',
+            (ADMIN_EMAIL,)
+        ).fetchone()
+
+        if not admin:
+            raise RuntimeError('Hãy cấu hình Admin trước.')
+
+        if credentials_path.exists():
+            raise RuntimeError(
+                'Đã tồn tại file thông tin demo. '
+                'Cần kiểm tra trước khi tạo lại.'
+            )
+
+        users = []
+        ids = {}
+
+        # Tạo 3 Customer và 3 Owner
+        for email, name, role in CUSTOMERS + OWNERS:
+
+            if c.execute(
+                'SELECT 1 FROM users WHERE email=?',
+                (email,)
+            ).fetchone():
+                raise RuntimeError(
+                    'Email demo đã tồn tại: ' + email
+                )
+
+            password = secrets.token_urlsafe(24)
+
+            cursor = c.execute(
+                '''INSERT INTO users
+                   (name,email,password_hash,is_admin)
+                   VALUES(?,?,?,0)''',
+                (name, email, hash_password(password))
+            )
+
+            ids[email] = cursor.lastrowid
+
+            users.append({
+                'email': email,
+                'name': name,
+                'role': role,
+                'password': password
+            })
+
+        # Tạo cơ sở và dịch vụ mẫu
+        for owner, business in zip(OWNERS, BUSINESSES):
+
+            owner_id = ids[owner[0]]
+            name, category, address, banner, services = business
+
+            business_id = c.execute(
+                '''INSERT INTO businesses
+                   (name,category,address,phone,description,
+                    owner_id,status,banner_path)
+                   VALUES(?,?,?,?,?,?,?,?)''',
+                (
+                    name, category, address,
+                    '0000000000', 'Cơ sở demo local',
+                    owner_id, 'active', banner
+                )
+            ).lastrowid
+
+            c.execute(
+                '''INSERT INTO business_applications
+                   (user_id,business_name,category,address,
+                    phone,description,status,reviewed_by,business_id)
+                   VALUES(?,?,?,?,?,?,?,?,?)''',
+                (
+                    owner_id, name, category, address,
+                    '0000000000', 'Dữ liệu demo',
+                    'approved', admin['id'], business_id
+                )
+            )
+
+            for service_name, price, duration in services:
+                c.execute(
+                    '''INSERT INTO services
+                       (business_id,name,description,price,
+                        duration_minutes,category,image_path)
+                       VALUES(?,?,?,?,?,?,?)''',
+                    (
+                        business_id, service_name,
+                        'Dịch vụ demo', price,
+                        duration, category, banner
+                    )
+                )
+
+        c.execute(
+            'INSERT INTO app_settings(key,value) VALUES(?,?)',
+            (marker, 'local-only')
+        )
+
+        private_json_write(credentials_path, {
+            'notice': 'Local only. Do not commit or share.',
+            'users': users
+        })
+
+    logging.info('Đã tạo 6 tài khoản demo local.')
+    logging.info('Thông tin đăng nhập: %s', credentials_path)
 if __name__=='__main__':
     seed()
-    logging.info('ServiceHub running at http://%s:%s',HOST,PORT)
-    ThreadingHTTPServer((HOST,PORT),Handler).serve_forever()
+    seed_local_demo()
+
+    logging.info('ServiceHub running at http://%s:%s', HOST, PORT)
+
+    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
