@@ -130,3 +130,65 @@ body{background:#FCFEFF}
 .notification-row p {margin:5px 0; color:#435654; font-size:14px; line-height:1.5;}
 .notification-row small {color:#687e7b;}
 @media(max-width:700px) {.notification-row {align-items:flex-start; flex-direction:column;} .notification-row button {width:100%;} .notification-shortcut {min-width:40px;}}
+
+/* BẮT ĐẦU CODE THÊM MỚI CHO S4R-07: PHÂN QUYỀN ĐÁNH GIÁ & KIỂM DUYỆT */
+.review-item-card {
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 16px;
+  background: #fff;
+  display: grid;
+  gap: 10px;
+}
+.review-item-card.is-hidden {
+  background: #fdf6f6;
+  border-color: #f3c6cb;
+  opacity: 0.9;
+}
+.review-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.review-stars {
+  color: #e6a928;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+.review-comment-text {
+  font-size: 13px;
+  color: var(--text);
+  margin: 0;
+  word-break: break-word; /* Tránh vỡ giao diện khi bình luận chứa chuỗi ký tự dài */
+}
+.review-mod-meta {
+  font-size: 11px;
+  color: var(--danger);
+  background: #fce7ea;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+.review-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+#review-moderation-form textarea {
+  width: 100%;
+  border: 1px solid #dedede;
+  border-radius: 9px;
+  padding: 11px 12px;
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+  background: #fff;
+}
+#review-moderation-form textarea:focus {
+  border-color: #17a6a1;
+  box-shadow: 0 0 0 3px #17a6a11a;
+}
+/* KẾT THÚC CODE THÊM MỚI */
