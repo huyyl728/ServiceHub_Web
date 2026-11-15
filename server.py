@@ -7,7 +7,7 @@ from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 import sqlite3, json, secrets, hashlib, hmac, os, mimetypes, traceback, logging, time, re, shlex
 from datetime import datetime, timedelta, timezone
-
+from contextlib import closing
 ROOT = Path(__file__).resolve().parent
 
 def load_local_env(path):
@@ -1086,6 +1086,347 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception: pass
                 raise
             return self.send_json(201,{'success':True,'data':{'url':url,'business_id':bid,'business_name':business['name']},'message':'Đã tải banner lên và cập nhật cơ sở thành công.'})
+                # ==========================================
+        # S4R-07: ADMIN REVIEW LIST
+        # ==========================================
+
+        if method == 'GET' and p == '/api/admin/reviews':
+
+            from contextlib import closing
+
+            self.admin(user)
+
+            query = parse_qs(
+                urlparse(self.path).query,
+                keep_blank_values=True
+            )
+
+            status_values = query.get('status', ['all'])
+
+            if (
+                len(status_values) != 1
+                or status_values[0] not in (
+                    'all', 'visible', 'hidden'
+                )
+            ):
+                raise APIError(
+                    400,
+                    'INVALID_REVIEW_STATUS',
+                    'Trạng thái đánh giá không hợp lệ.'
+                )
+
+            status = status_values[0]
+
+            page_values = query.get('page', ['1'])
+
+            if (
+                len(page_values) != 1
+                or not re.fullmatch(
+                    r'[0-9]{1,6}', page_values[0]
+                )
+                or not 1 <= int(page_values[0]) <= 100000
+            ):
+                raise APIError(
+                    400,
+                    'INVALID_PAGE',
+                    'Số trang không hợp lệ.'
+                )
+
+            page = int(page_values[0])
+            limit = 20
+            offset = (page - 1) * limit
+
+            conditions = []
+            params = []
+
+            if status == 'visible':
+                conditions.append('r.is_visible = ?')
+                params.append(1)
+
+            elif status == 'hidden':
+                conditions.append('r.is_visible = ?')
+                params.append(0)
+
+            where = (
+                'WHERE ' + ' AND '.join(conditions)
+                if conditions else ''
+            )
+
+            with closing(connect()) as c, c:
+
+                c.execute('BEGIN')
+
+                summary = c.execute(
+                    """
+                    SELECT
+                        COUNT(*) AS total,
+                        COUNT(
+                            CASE WHEN is_visible = 1 THEN 1 END
+                        ) AS visible,
+                        COUNT(
+                            CASE WHEN is_visible = 0 THEN 1 END
+                        ) AS hidden
+                    FROM reviews
+                    """
+                ).fetchone()
+
+                filtered_count = c.execute(
+                    f"""
+                    SELECT COUNT(*)
+                    FROM reviews r
+                    {where}
+                    """,
+                    params
+                ).fetchone()[0]
+
+                reviews = [
+                    dict(row)
+                    for row in c.execute(
+                        f"""
+                        SELECT
+                            r.*,
+                            u.name AS customer_name,
+                            b.name AS business_name,
+                            s.name AS service_name,
+
+                            m.details AS moderation_reason,
+                            m.created_at AS moderated_at,
+                            m.actor_id AS moderated_by,
+                            admin.name AS moderator_name
+
+                        FROM reviews r
+
+                        JOIN users u
+                            ON u.id = r.user_id
+
+                        JOIN businesses b
+                            ON b.id = r.business_id
+
+                        JOIN services s
+                            ON s.id = r.service_id
+
+                        LEFT JOIN audit_logs m
+                            ON m.id = (
+                                SELECT a.id
+                                FROM audit_logs a
+                                WHERE a.entity_type = 'review'
+                                  AND a.entity_id = CAST(r.id AS TEXT)
+                                  AND a.action IN (
+                                      'review_hidden',
+                                      'review_restored'
+                                  )
+                                ORDER BY a.id DESC
+                                LIMIT 1
+                            )
+
+                        LEFT JOIN users admin
+                            ON admin.id = m.actor_id
+
+                        {where}
+
+                        ORDER BY r.created_at DESC, r.id DESC
+
+                        LIMIT ? OFFSET ?
+                        """,
+                        params + [limit, offset]
+                    )
+                ]
+
+            return self.send_json(200, {
+                'success': True,
+                'data': {
+                    'summary': dict(summary),
+                    'status': status,
+                    'page': page,
+                    'page_size': limit,
+                    'filtered_count': filtered_count,
+                    'reviews': reviews
+                }
+            })
+
+                # ==========================================
+        # S4R-07: ADMIN REVIEW MODERATION
+        # ==========================================
+
+        if (
+            method == 'POST'
+            and p.startswith('/api/admin/reviews/')
+            and p.endswith('/moderate')
+        ):
+
+            from contextlib import closing
+
+            self.admin(user)
+
+            # 1. Validate review ID
+            match = re.fullmatch(
+                r'/api/admin/reviews/([0-9]{1,19})/moderate',
+                p
+            )
+
+            if not match:
+                raise APIError(
+                    400,
+                    'INVALID_REVIEW_ID',
+                    'Mã đánh giá không hợp lệ.'
+                )
+
+            review_id = int(match.group(1))
+
+            if not 1 <= review_id <= 2**63 - 1:
+                raise APIError(
+                    400,
+                    'INVALID_REVIEW_ID',
+                    'Mã đánh giá không hợp lệ.'
+                )
+
+            # 2. Validate request body
+            data = self.body()
+
+            if not isinstance(data, dict):
+                raise APIError(
+                    400,
+                    'VALIDATION_ERROR',
+                    'Dữ liệu kiểm duyệt không hợp lệ.'
+                )
+
+            target_status = data.get('target_status')
+            reason = data.get('reason')
+
+            if target_status not in ('visible', 'hidden'):
+                raise APIError(
+                    400,
+                    'INVALID_REVIEW_STATUS',
+                    'Trạng thái phải là visible hoặc hidden.'
+                )
+
+            if not isinstance(reason, str):
+                raise APIError(
+                    400,
+                    'INVALID_MODERATION_REASON',
+                    'Vui lòng nhập lý do kiểm duyệt.'
+                )
+
+            reason = reason.strip()
+
+            if not 5 <= len(reason) <= 500:
+                raise APIError(
+                    400,
+                    'INVALID_MODERATION_REASON',
+                    'Lý do kiểm duyệt phải từ 5 đến 500 ký tự.'
+                )
+
+            # 3. Determine target state
+            target_visible = (
+                1 if target_status == 'visible' else 0
+            )
+
+            action = (
+                'review_restored'
+                if target_visible == 1
+                else 'review_hidden'
+            )
+
+            # 4. Start database transaction
+            with closing(connect()) as c, c:
+
+                c.execute('BEGIN IMMEDIATE')
+
+                review = c.execute(
+                    """
+                    SELECT id, is_visible
+                    FROM reviews
+                    WHERE id = ?
+                    """,
+                    (review_id,)
+                ).fetchone()
+
+                if not review:
+                    raise APIError(
+                        404,
+                        'REVIEW_NOT_FOUND',
+                        'Không tìm thấy đánh giá.'
+                    )
+
+                # Prevent duplicate moderation
+                if review['is_visible'] == target_visible:
+                    raise APIError(
+                        409,
+                        'REVIEW_STATUS_UNCHANGED',
+                        'Đánh giá đã ở trạng thái được chọn.'
+                    )
+
+                # 5. Update review visibility
+                c.execute(
+                    """
+                    UPDATE reviews
+                    SET is_visible = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (
+                        target_visible,
+                        review_id
+                    )
+                )
+
+                # 6. Save audit log
+                audit(
+                    c,
+                    user['id'],
+                    action,
+                    'review',
+                    review_id,
+                    reason
+                )
+
+                # 7. Get moderation result
+                result = dict(c.execute(
+                    """
+                    SELECT
+                        r.id,
+                        r.is_visible,
+                        r.updated_at,
+                        a.details AS moderation_reason,
+                        a.actor_id AS moderated_by,
+                        a.created_at AS moderated_at,
+                        u.name AS moderator_name
+
+                    FROM reviews r
+
+                    JOIN audit_logs a
+                        ON a.id = (
+                            SELECT m.id
+                            FROM audit_logs m
+                            WHERE m.entity_type = 'review'
+                              AND m.entity_id = CAST(r.id AS TEXT)
+                              AND m.action IN (
+                                  'review_hidden',
+                                  'review_restored'
+                              )
+                            ORDER BY m.id DESC
+                            LIMIT 1
+                        )
+
+                    LEFT JOIN users u
+                        ON u.id = a.actor_id
+
+                    WHERE r.id = ?
+                    """,
+                    (review_id,)
+                ).fetchone())
+
+            message = (
+                'Đã khôi phục đánh giá.'
+                if target_visible == 1
+                else 'Đã ẩn đánh giá.'
+            )
+
+            return self.send_json(200, {
+                'success': True,
+                'message': message,
+                'data': result
+            })
         if method=='GET' and p=='/api/admin/stats':
             self.admin(user)
             with connect() as c: data={'users':c.execute('SELECT COUNT(*) FROM users WHERE is_admin=0').fetchone()[0],'pending_applications':c.execute("SELECT COUNT(*) FROM business_applications WHERE status='pending'").fetchone()[0],'businesses':c.execute('SELECT COUNT(*) FROM businesses').fetchone()[0],'bookings':c.execute('SELECT COUNT(*) FROM bookings').fetchone()[0]}

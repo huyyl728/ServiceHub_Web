@@ -102,3 +102,10 @@ ON reviews(service_id, is_visible, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_reviews_user
 ON reviews(user_id, created_at DESC);
+
+-- ==========================================
+-- S4R-07: REVIEW MODERATION
+-- ==========================================
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
+ON audit_logs(entity_type, entity_id, id DESC);
