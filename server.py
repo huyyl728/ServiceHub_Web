@@ -234,6 +234,41 @@ def seed():
 class APIError(Exception):
     def __init__(self, status, code, message): self.status,self.code,self.message=status,code,message
 
+def validate_review_payload(data):
+    if not isinstance(data, dict):
+        raise APIError(
+            400,
+            'VALIDATION_ERROR',
+            'Dữ liệu đánh giá không hợp lệ.'
+        )
+
+    rating = data.get('rating')
+    comment = data.get('comment', '')
+
+    if type(rating) is not int or not 1 <= rating <= 5:
+        raise APIError(
+            400,
+            'INVALID_RATING',
+            'Điểm đánh giá phải là số nguyên từ 1 đến 5.'
+        )
+
+    if not isinstance(comment, str):
+        raise APIError(
+            400,
+            'INVALID_COMMENT',
+            'Bình luận phải là chuỗi ký tự.'
+        )
+
+    comment = comment.strip()
+
+    if len(comment) > 1000:
+        raise APIError(
+            400,
+            'COMMENT_TOO_LONG',
+            'Bình luận không được vượt quá 1000 ký tự.'
+        )
+
+    return rating, comment
 class Handler(BaseHTTPRequestHandler):
     server_version = 'ServiceHubMVP/1.0'
     def log_message(self, fmt, *args): logging.info('%s - %s', self.address_string(), fmt % args)
@@ -302,6 +337,149 @@ class Handler(BaseHTTPRequestHandler):
     def api(self,method,p):
 
         # Public catalog
+                # ==========================================
+        # S4R-02: PUBLIC REVIEWS AND RATINGS
+        # ==========================================
+
+        if method == 'GET' and p == '/api/reviews':
+
+            from contextlib import closing
+
+            query = parse_qs(
+                urlparse(self.path).query,
+                keep_blank_values=True
+            )
+
+            business_ids = query.get('business_id', [])
+            service_ids = query.get('service_id', [])
+
+            if len(business_ids) == 1 and not service_ids:
+                field = 'business_id'
+                raw_id = business_ids[0]
+
+            elif len(service_ids) == 1 and not business_ids:
+                field = 'service_id'
+                raw_id = service_ids[0]
+
+            else:
+                raise APIError(
+                    400,
+                    'INVALID_REVIEW_FILTER',
+                    'Cần cung cấp một business_id hoặc service_id.'
+                )
+
+            if (
+                not re.fullmatch(r'[0-9]{1,19}', raw_id)
+                or not 1 <= int(raw_id) <= 2**63 - 1
+            ):
+                raise APIError(
+                    400,
+                    'INVALID_ID',
+                    'Mã cơ sở hoặc dịch vụ không hợp lệ.'
+                )
+
+            target_id = int(raw_id)
+
+            # Phân trang: 20 đánh giá mỗi trang
+            page_values = query.get('page', ['1'])
+
+            if (
+                len(page_values) != 1
+                or not re.fullmatch(
+                    r'[0-9]{1,6}', page_values[0]
+                )
+                or not 1 <= int(page_values[0]) <= 100000
+            ):
+                raise APIError(
+                    400,
+                    'INVALID_PAGE',
+                    'Số trang không hợp lệ.'
+                )
+
+            page = int(page_values[0])
+            limit = 20
+            offset = (page - 1) * limit
+
+            with closing(connect()) as c, c:
+
+                c.execute('BEGIN')
+
+                if field == 'business_id':
+                    target = c.execute(
+                        """
+                        SELECT id FROM businesses
+                        WHERE id = ? AND status = 'active'
+                        """,
+                        (target_id,)
+                    ).fetchone()
+
+                else:
+                    target = c.execute(
+                        """
+                        SELECT s.id
+                        FROM services s
+                        JOIN businesses b
+                            ON b.id = s.business_id
+                        WHERE s.id = ?
+                          AND s.active = 1
+                          AND b.status = 'active'
+                        """,
+                        (target_id,)
+                    ).fetchone()
+
+                if not target:
+                    raise APIError(
+                        404,
+                        'REVIEW_TARGET_NOT_FOUND',
+                        'Không tìm thấy cơ sở hoặc dịch vụ.'
+                    )
+
+                summary = c.execute(
+                    f"""
+                    SELECT
+                        COUNT(*) AS review_count,
+                        ROUND(AVG(rating), 2) AS average_rating
+                    FROM reviews
+                    WHERE {field} = ?
+                      AND is_visible = 1
+                    """,
+                    (target_id,)
+                ).fetchone()
+
+                reviews = [
+                    dict(row)
+                    for row in c.execute(
+                        f"""
+                        SELECT
+                            r.id,
+                            r.business_id,
+                            r.service_id,
+                            r.rating,
+                            r.comment,
+                            r.created_at,
+                            r.updated_at,
+                            u.name AS customer_name
+                        FROM reviews r
+                        JOIN users u ON u.id = r.user_id
+                        WHERE r.{field} = ?
+                          AND r.is_visible = 1
+                        ORDER BY r.created_at DESC, r.id DESC
+                        LIMIT ? OFFSET ?
+                        """,
+                        (target_id, limit, offset)
+                    )
+                ]
+
+            return self.send_json(200, {
+                'success': True,
+                'data': {
+                    'average_rating': summary['average_rating'],
+                    'review_count': summary['review_count'],
+                    'page': page,
+                    'page_size': limit,
+                    'reviews': reviews
+                }
+            })
         if method=='GET' and p=='/api/health': return self.send_json(200,{'success':True,'data':{'status':'ok','database':str(DB_PATH.name)}})
         if method=='GET' and p.startswith('/api/businesses/') and p!='/api/businesses/managed':
             try: bid=int(p.rstrip('/').split('/')[-1])
@@ -527,6 +705,260 @@ class Handler(BaseHTTPRequestHandler):
                 if row['status'] not in allowed[action]: raise APIError(409,'INVALID_BOOKING_STATE','Không thể chuyển lịch đặt từ trạng thái hiện tại.')
                 c.execute('UPDATE bookings SET status=? WHERE id=?',(status,booking_id)); notify(c,row['user_id'],'Lịch đặt được cập nhật',f'Lịch đặt #{booking_id} hiện có trạng thái {status}.'); c.commit()
             return self.send_json(200,{'success':True,'message':'Đã cập nhật lịch đặt.'})
+                # ==========================================
+        # S4R-02: CREATE CUSTOMER REVIEW
+        # ==========================================
+                # ==========================================
+        # S4R-02: CUSTOMER PERSONAL REVIEWS
+        # ==========================================
+
+        if method == 'GET' and p == '/api/reviews/me':
+
+            from contextlib import closing
+
+            with closing(connect()) as c:
+
+                reviews = [
+                    dict(row)
+                    for row in c.execute(
+                        """
+                        SELECT
+                            r.*,
+                            b.name AS business_name,
+                            s.name AS service_name
+                        FROM reviews r
+                        JOIN businesses b
+                            ON b.id = r.business_id
+                        JOIN services s
+                            ON s.id = r.service_id
+                        WHERE r.user_id = ?
+                        ORDER BY r.created_at DESC, r.id DESC
+                        """,
+                        (user['id'],)
+                    )
+                ]
+
+            return self.send_json(200, {
+                'success': True,
+                'data': reviews
+            })
+        if method == 'POST' and p == '/api/reviews':
+
+            from contextlib import closing
+
+            data = self.body()
+
+            rating, comment = validate_review_payload(data)
+
+            booking_id = data.get('booking_id')
+
+            if (
+                type(booking_id) is not int
+                or not 1 <= booking_id <= 2**63 - 1
+            ):
+                raise APIError(
+                    400,
+                    'INVALID_BOOKING_ID',
+                    'Mã lịch đặt không hợp lệ.'
+                )
+
+            with closing(connect()) as c, c:
+
+                c.execute('BEGIN IMMEDIATE')
+
+                booking = c.execute(
+                    '''
+                    SELECT id, user_id, business_id,
+                           service_id, status
+                    FROM bookings
+                    WHERE id = ? AND user_id = ?
+                    ''',
+                    (booking_id, user['id'])
+                ).fetchone()
+
+                if not booking:
+                    raise APIError(
+                        404,
+                        'BOOKING_NOT_FOUND',
+                        'Không tìm thấy lịch đặt của bạn.'
+                    )
+
+                if booking['status'] != 'completed':
+                    raise APIError(
+                        409,
+                        'BOOKING_NOT_COMPLETED',
+                        'Chỉ được đánh giá lịch đã hoàn thành.'
+                    )
+
+                existing = c.execute(
+                    '''
+                    SELECT id FROM reviews
+                    WHERE booking_id = ?
+                    ''',
+                    (booking_id,)
+                ).fetchone()
+
+                if existing:
+                    raise APIError(
+                        409,
+                        'REVIEW_ALREADY_EXISTS',
+                        'Lịch đặt này đã được đánh giá.'
+                    )
+
+                cursor = c.execute(
+                    '''
+                    INSERT INTO reviews (
+                        booking_id,
+                        user_id,
+                        business_id,
+                        service_id,
+                        rating,
+                        comment
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ''',
+                    (
+                        booking['id'],
+                        user['id'],
+                        booking['business_id'],
+                        booking['service_id'],
+                        rating,
+                        comment
+                    )
+                )
+
+                review_id = cursor.lastrowid
+
+                audit(
+                    c,
+                    user['id'],
+                    'review_created',
+                    'review',
+                    review_id
+                )
+
+                review = dict(c.execute(
+                    'SELECT * FROM reviews WHERE id = ?',
+                    (review_id,)
+                ).fetchone())
+
+            return self.send_json(201, {
+                'success': True,
+                'message': 'Đánh giá thành công.',
+                'data': review
+            })
+
+                # ==========================================
+        # S4R-02: UPDATE CUSTOMER REVIEW
+        # ==========================================
+
+        if method == 'PUT' and p.startswith('/api/reviews/'):
+
+            from contextlib import closing
+
+            match = re.fullmatch(
+                r'/api/reviews/([0-9]{1,19})',
+                p
+            )
+
+            if not match:
+                raise APIError(
+                    400,
+                    'INVALID_REVIEW_ID',
+                    'Mã đánh giá không hợp lệ.'
+                )
+
+            review_id = int(match.group(1))
+
+            if not 1 <= review_id <= 2**63 - 1:
+                raise APIError(
+                    400,
+                    'INVALID_REVIEW_ID',
+                    'Mã đánh giá không hợp lệ.'
+                )
+
+            data = self.body()
+
+            rating, comment = validate_review_payload(data)
+
+            with closing(connect()) as c, c:
+
+                c.execute('BEGIN IMMEDIATE')
+
+                review = c.execute(
+                    """
+                    SELECT
+                        r.*,
+                        bk.status AS booking_status
+                    FROM reviews r
+                    JOIN bookings bk
+                        ON bk.id = r.booking_id
+                    WHERE r.id = ?
+                      AND r.user_id = ?
+                      AND bk.user_id = ?
+                    """,
+                    (
+                        review_id,
+                        user['id'],
+                        user['id']
+                    )
+                ).fetchone()
+
+                if not review:
+                    raise APIError(
+                        404,
+                        'REVIEW_NOT_FOUND',
+                        'Không tìm thấy đánh giá của bạn.'
+                    )
+
+                if review['booking_status'] != 'completed':
+                    raise APIError(
+                        409,
+                        'BOOKING_NOT_COMPLETED',
+                        'Lịch đặt chưa hoàn thành.'
+                    )
+
+                if review['is_visible'] != 1:
+                    raise APIError(
+                        409,
+                        'REVIEW_HIDDEN',
+                        'Đánh giá đang bị ẩn bởi quản trị viên.'
+                    )
+
+                c.execute(
+                    """
+                    UPDATE reviews
+                    SET rating = ?,
+                        comment = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND user_id = ?
+                    """,
+                    (
+                        rating,
+                        comment,
+                        review_id,
+                        user['id']
+                    )
+                )
+
+                audit(
+                    c,
+                    user['id'],
+                    'review_updated',
+                    'review',
+                    review_id
+                )
+
+                updated_review = dict(c.execute(
+                    'SELECT * FROM reviews WHERE id = ?',
+                    (review_id,)
+                ).fetchone())
+
+            return self.send_json(200, {
+                'success': True,
+                'message': 'Cập nhật đánh giá thành công.',
+                'data': updated_review
+            })
         if method=='GET' and p=='/api/bookings/me':
             with connect() as c: rows=[dict(r) for r in c.execute('SELECT bk.*,s.name service_name,b.name business_name,b.address business_address FROM bookings bk JOIN services s ON s.id=bk.service_id JOIN businesses b ON b.id=bk.business_id WHERE bk.user_id=? ORDER BY bk.booking_date DESC,bk.start_time DESC',(user['id'],))]
             return self.send_json(200,{'success':True,'data':rows})
