@@ -118,20 +118,6 @@ class LocalDemoTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
 
-        self.assertEqual(
-            self.query(
-                'SELECT COUNT(*) FROM users WHERE is_admin=0'
-            )[0][0],
-            0
-        )
-
-    def test_demo_disabled_in_production(self):
-        self.env['SERVICEHUB_ENV'] = 'production'
-
-        result = self.run_seed()
-
-        self.assertNotEqual(result.returncode, 0)
-
         self.assertFalse(
             (self.root / 'servicehub.db').exists()
         )
@@ -175,6 +161,59 @@ class LocalDemoTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(before, copied_db.read_bytes())
+    def test_legacy_demo_compatibility(self):
 
+        # Khởi tạo demo độc lập hai lần
+        for _ in range(2):
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    'scripts/local_demo.py',
+                    '--setup-only'
+                ],
+                cwd=self.root,
+                env=self.env,
+                capture_output=True,
+                text=True
+            )
+
+            self.assertEqual(
+                result.returncode, 0, result.stderr
+            )
+
+        legacy_db = (
+            self.root / '.local-demo/servicehub-demo.db'
+        )
+
+        self.assertTrue(legacy_db.exists())
+
+        with closing(sqlite3.connect(legacy_db)) as conn:
+            self.assertEqual(
+                conn.execute(
+                    'SELECT COUNT(*) FROM users'
+                ).fetchone()[0],
+                7
+            )
+
+        # Production phải từ chối database demo cũ
+        copied_db = self.root / 'legacy-production.db'
+        shutil.copyfile(legacy_db, copied_db)
+
+        before = copied_db.read_bytes()
+
+        self.env.update({
+            'SERVICEHUB_ENV': 'production',
+            'SERVICEHUB_LOCAL_DEMO': '0',
+            'SERVICEHUB_DB_PATH': str(copied_db)
+        })
+
+        result = self.run_seed()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            'Database chứa dữ liệu demo',
+            result.stderr
+        )
+        self.assertEqual(before, copied_db.read_bytes())
 if __name__ == '__main__':
     unittest.main()

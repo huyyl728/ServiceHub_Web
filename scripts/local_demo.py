@@ -81,6 +81,7 @@ def prepare(port):
     first_run, credentials = checked_credential_file()
     admin = credentials['users'][0]
     os.environ.update({
+        'SERVICEHUB_LOCAL_DEMO': '0',
         'SERVICEHUB_ENV': 'local-demo',
         'SERVICEHUB_HOST': '127.0.0.1',
         'SERVICEHUB_PORT': str(port),

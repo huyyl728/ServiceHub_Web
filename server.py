@@ -173,18 +173,38 @@ def validate_demo_environment():
                WHERE type='table'
                AND name='app_settings'"""
         ).fetchone()
-
         if has_settings:
-            demo_marker = c.execute(
-                'SELECT 1 FROM app_settings WHERE key=?',
-                ('main_local_demo_v1',)
-            ).fetchone()
+            markers = {
+        row[0] for row in c.execute(
+            'SELECT key FROM app_settings WHERE key IN (?,?)',
+            (
+                'main_local_demo_v1',
+                'local_demo_booking_only_v1'
+            )
+        )
+    }
 
-            if demo_marker and not (enabled and local_allowed):
-                raise RuntimeError(
-                    'Database chứa dữ liệu demo. '
-                    'Không được sử dụng ngoài chế độ demo local.'
-                )
+    legacy_allowed = (
+        not enabled
+        and HOST == '127.0.0.1'
+        and environment == 'local-demo'
+        and DB_PATH == (
+            ROOT / '.local-demo' / 'servicehub-demo.db'
+        ).resolve()
+        and not any(os.environ.get(x) for x in hosting_vars)
+    )
+
+    if (
+        ('main_local_demo_v1' in markers
+         and not (enabled and local_allowed))
+        or
+        ('local_demo_booking_only_v1' in markers
+         and not legacy_allowed)
+    ):
+        raise RuntimeError(
+            'Database chứa dữ liệu demo. '
+            'Không được sử dụng ngoài chế độ demo local.'
+        )
 
 def seed():
     validate_demo_environment()
