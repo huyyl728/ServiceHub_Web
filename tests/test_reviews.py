@@ -524,7 +524,7 @@ class ReviewIntegrationTests(unittest.TestCase):
         self.assertEqual(
             result['data']['review_count'], 1
         )
-    
+
         # REV-12
     def test_concurrent_duplicate_reviews(self):
 
@@ -554,7 +554,7 @@ class ReviewIntegrationTests(unittest.TestCase):
             ).fetchone()[0]
 
         self.assertEqual(count, 1)
-    
+
         # REV-13
     def test_reviews_are_scoped_to_correct_target(self):
 
@@ -635,7 +635,7 @@ class ReviewIntegrationTests(unittest.TestCase):
         self.assertEqual(
             service['data']['review_count'], 1
         )
-    
+
         # REV-14
     def test_hidden_review_cannot_be_updated(self):
 
@@ -670,7 +670,7 @@ class ReviewIntegrationTests(unittest.TestCase):
             result['error']['code'],
             'REVIEW_HIDDEN'
         )
-    
+
         # REV-15
     def test_existing_database_migration(self):
 
