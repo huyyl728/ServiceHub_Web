@@ -161,7 +161,7 @@ def validate_demo_environment():
 
     if not DB_PATH.exists():
         return
-
+    markers = set()
     # Kiểm tra database mà không thay đổi dữ liệu
     with closing(sqlite3.connect(
         DB_PATH.as_uri() + '?mode=ro',
