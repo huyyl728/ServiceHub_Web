@@ -845,17 +845,122 @@
             </div>
             <div id="application-review-list" class="stack-list"></div>
           </article>
+                    <!-- S4R-06: Quản lý và thống kê chi tiết cơ sở -->
           <article class="panel">
             <div class="panel-heading">
               <div>
-                <h2>Quản lý trạng thái cơ sở</h2>
+                <h2>Quản lý và thống kê cơ sở</h2>
                 <p class="muted">
-                  Tạm dừng hoặc kích hoạt cơ sở; quyết định được ghi nhận trong
-                  nhật ký admin.
+                  Theo dõi lịch đặt, dịch vụ và đánh giá của từng cơ sở.
                 </p>
               </div>
             </div>
-            <div id="admin-businesses" class="compact-list"></div>
+
+            <form id="admin-business-filter"
+                  class="admin-business-filter">
+
+              <label>
+                Tìm kiếm
+                <input
+                  type="search"
+                  id="admin-business-search"
+                  placeholder="Tên cơ sở, danh mục, chủ cơ sở..."
+                  maxlength="120"
+                />
+              </label>
+
+              <label>
+                Trạng thái
+                <select id="admin-business-status">
+                  <option value="all">Tất cả</option>
+                  <option value="active">Đang hoạt động</option>
+                  <option value="suspended">Đang tạm dừng</option>
+                </select>
+              </label>
+
+              <label>
+                Từ ngày
+                <input type="date" id="admin-business-start" />
+              </label>
+
+              <label>
+                Đến ngày
+                <input type="date" id="admin-business-end" />
+              </label>
+
+              <div class="row-actions">
+                <button type="submit" class="btn btn-dark">
+                  Áp dụng
+                </button>
+
+                <button type="reset" class="btn btn-outline">
+                  Đặt lại
+                </button>
+              </div>
+            </form>
+
+            <p class="muted">
+              Bộ lọc ngày chỉ áp dụng cho lịch đặt.
+              Điểm sao tính từ toàn bộ đánh giá đang hiển thị.
+            </p>
+
+            <div id="admin-businesses"
+                 class="compact-list"
+                 aria-live="polite">
+            </div>
+
+            <div class="admin-business-pagination">
+              <button id="admin-business-prev"
+                      class="btn btn-outline btn-small"
+                      type="button" disabled>
+                Trang trước
+              </button>
+
+              <span id="admin-business-page">Trang 1 / 1</span>
+
+              <button id="admin-business-next"
+                      class="btn btn-outline btn-small"
+                      type="button" disabled>
+                Trang sau
+              </button>
+            </div>
+
+            <section id="admin-business-detail"
+                     class="admin-business-detail hidden">
+
+              <div class="panel-heading">
+                <h2>Chi tiết cơ sở</h2>
+
+                <button id="admin-business-close"
+                        type="button"
+                        class="btn btn-outline btn-small">
+                  Đóng
+                </button>
+              </div>
+
+              <div id="admin-business-detail-content"
+                   aria-live="polite">
+              </div>
+
+              <div class="admin-business-pagination">
+                <button id="admin-booking-prev"
+                        type="button"
+                        class="btn btn-outline btn-small"
+                        disabled>
+                  Trang trước
+                </button>
+
+                <span id="admin-booking-page">Trang 1 / 1</span>
+
+                <button id="admin-booking-next"
+                        type="button"
+                        class="btn btn-outline btn-small"
+                        disabled>
+                  Trang sau
+                </button>
+              </div>
+
+            </section>
           </article>
           <article class="panel">
             <div class="panel-heading">

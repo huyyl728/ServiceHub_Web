@@ -1448,11 +1448,376 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as c:
                 rows=[dict(r) for r in c.execute('SELECT a.id,u.name actor_name,a.action,a.entity_type,a.entity_id,a.created_at FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_id ORDER BY a.id DESC LIMIT 50')]
             return self.send_json(200,{'success':True,'data':rows})
-        if method=='GET' and p=='/api/admin/businesses':
+                # S4R-05: Thống kê và thông tin chi tiết cơ sở
+        detail_match = re.fullmatch(
+            r'/api/admin/businesses/([^/]+)/detail', p
+        )
+
+        if method == 'GET' and (
+            p == '/api/admin/businesses' or detail_match
+        ):
+            from contextlib import closing
+
             self.admin(user)
-            with connect() as c:
-                rows=[dict(r) for r in c.execute('SELECT b.id,b.name,b.category,b.status,u.name owner_name,(SELECT COUNT(*) FROM services WHERE business_id=b.id) service_count FROM businesses b JOIN users u ON u.id=b.owner_id ORDER BY b.id DESC LIMIT 100')]
-            return self.send_json(200,{'success':True,'data':rows})
+
+            query = parse_qs(
+                urlparse(self.path).query,
+                keep_blank_values=True
+            )
+
+            # Đọc và kiểm tra tham số truy vấn
+            def get_param(key, default=''):
+                values = query.get(key, [default])
+
+                if len(values) != 1:
+                    raise APIError(
+                        400,
+                        'INVALID_PARAMETER',
+                        f'Tham số {key} không hợp lệ.'
+                    )
+
+                return values[0].strip()
+
+            start_date = get_param('start_date')
+            end_date = get_param('end_date')
+            page_value = get_param('page', '1')
+
+            # Kiểm tra định dạng ngày
+            for value in (start_date, end_date):
+                if not value:
+                    continue
+
+                try:
+                    if not re.fullmatch(
+                        r'[0-9]{4}-[0-9]{2}-[0-9]{2}', value
+                    ):
+                        raise ValueError()
+
+                    datetime.strptime(value, '%Y-%m-%d')
+
+                except ValueError:
+                    raise APIError(
+                        400,
+                        'INVALID_DATE',
+                        'Ngày phải có định dạng YYYY-MM-DD.'
+                    )
+
+            if start_date and end_date and start_date > end_date:
+                raise APIError(
+                    400,
+                    'INVALID_DATE_RANGE',
+                    'Ngày bắt đầu không được sau ngày kết thúc.'
+                )
+
+            # Kiểm tra số trang
+            if (
+                not re.fullmatch(r'[0-9]{1,6}', page_value)
+                or not 1 <= int(page_value) <= 100000
+            ):
+                raise APIError(
+                    400,
+                    'INVALID_PAGE',
+                    'Số trang không hợp lệ.'
+                )
+
+            page = int(page_value)
+
+            # Điều kiện lọc lịch đặt theo ngày sử dụng dịch vụ
+            booking_conditions = ['1=1']
+            booking_params = []
+
+            if start_date:
+                booking_conditions.append('bk.booking_date >= ?')
+                booking_params.append(start_date)
+
+            if end_date:
+                booking_conditions.append('bk.booking_date <= ?')
+                booking_params.append(end_date)
+
+            booking_where = ' AND '.join(booking_conditions)
+
+            # Điều kiện lọc danh sách cơ sở
+            business_conditions = ['1=1']
+            business_params = []
+
+            if detail_match:
+                raw_id = detail_match.group(1)
+
+                if (
+                    not re.fullmatch(r'[0-9]{1,19}', raw_id)
+                    or not 1 <= int(raw_id) <= 2**63 - 1
+                ):
+                    raise APIError(
+                        400,
+                        'INVALID_ID',
+                        'Mã cơ sở không hợp lệ.'
+                    )
+
+                business_id = int(raw_id)
+
+                business_conditions.append('b.id = ?')
+                business_params.append(business_id)
+
+                limit = 1
+                offset = 0
+
+            else:
+                keyword = get_param('q')
+                status = get_param('status', 'all')
+
+                if len(keyword) > 120:
+                    raise APIError(
+                        400,
+                        'INVALID_KEYWORD',
+                        'Từ khóa không được vượt quá 120 ký tự.'
+                    )
+
+                if status not in ('all', 'active', 'suspended'):
+                    raise APIError(
+                        400,
+                        'INVALID_STATUS',
+                        'Trạng thái cơ sở không hợp lệ.'
+                    )
+
+                if keyword:
+                    business_conditions.append(
+                        '''
+                        (
+                            INSTR(LOWER(b.name), LOWER(?)) > 0
+                            OR INSTR(LOWER(b.category), LOWER(?)) > 0
+                            OR INSTR(LOWER(u.name), LOWER(?)) > 0
+                        )
+                        '''
+                    )
+
+                    business_params.extend([keyword] * 3)
+
+                if status != 'all':
+                    business_conditions.append('b.status = ?')
+                    business_params.append(status)
+
+                limit = 100
+                offset = (page - 1) * limit
+
+            business_where = ' AND '.join(business_conditions)
+
+            # Đọc dữ liệu thống kê trong cùng một giao dịch
+            with closing(connect()) as c, c:
+
+                c.execute('BEGIN')
+
+                # Tổng hợp riêng từng bảng để tránh đếm trùng
+                rows = [
+                    dict(row)
+                    for row in c.execute(
+                        f'''
+                        WITH selected AS (
+                            SELECT
+                                b.id,
+                                b.name,
+                                b.category,
+                                b.status,
+                                b.address,
+                                b.phone,
+                                b.description,
+                                u.name AS owner_name
+                            FROM businesses b
+                            JOIN users u ON u.id = b.owner_id
+                            WHERE {business_where}
+                            ORDER BY b.id DESC
+                            LIMIT ? OFFSET ?
+                        ),
+                        booking_stats AS (
+                            SELECT
+                                bk.business_id,
+                                COUNT(*) AS booking_count,
+                                SUM(CASE WHEN bk.status = 'completed'
+                                    THEN 1 ELSE 0 END) AS completed_count,
+                                SUM(CASE WHEN bk.status = 'cancelled'
+                                    THEN 1 ELSE 0 END) AS cancelled_count,
+                                SUM(CASE WHEN bk.status = 'pending'
+                                    THEN 1 ELSE 0 END) AS pending_count,
+                                SUM(CASE WHEN bk.status = 'confirmed'
+                                    THEN 1 ELSE 0 END) AS confirmed_count
+                            FROM bookings bk
+                            JOIN selected b ON b.id = bk.business_id
+                            WHERE {booking_where}
+                            GROUP BY bk.business_id
+                        ),
+                        service_stats AS (
+                            SELECT
+                                s.business_id,
+                                COUNT(*) AS service_count
+                            FROM services s
+                            JOIN selected b ON b.id = s.business_id
+                            GROUP BY s.business_id
+                        ),
+                        review_stats AS (
+                            SELECT
+                                r.business_id,
+                                COUNT(*) AS review_count,
+                                ROUND(AVG(r.rating), 2) AS average_rating
+                            FROM reviews r
+                            JOIN selected b ON b.id = r.business_id
+                            WHERE r.is_visible = 1
+                            GROUP BY r.business_id
+                        )
+                        SELECT
+                            b.*,
+                            COALESCE(bk.booking_count, 0)
+                                AS booking_count,
+                            COALESCE(bk.completed_count, 0)
+                                AS completed_count,
+                            COALESCE(bk.cancelled_count, 0)
+                                AS cancelled_count,
+                            COALESCE(bk.pending_count, 0)
+                                AS pending_count,
+                            COALESCE(bk.confirmed_count, 0)
+                                AS confirmed_count,
+                            COALESCE(s.service_count, 0)
+                                AS service_count,
+                            COALESCE(r.review_count, 0)
+                                AS review_count,
+                            r.average_rating
+                        FROM selected b
+                        LEFT JOIN booking_stats bk
+                            ON bk.business_id = b.id
+                        LEFT JOIN service_stats s
+                            ON s.business_id = b.id
+                        LEFT JOIN review_stats r
+                            ON r.business_id = b.id
+                        ORDER BY b.id DESC
+                        ''',
+                        [
+                            *business_params,
+                            limit,
+                            offset,
+                            *booking_params
+                        ]
+                    )
+                ]
+
+                # Trả về danh sách cơ sở
+                if not detail_match:
+                    total = c.execute(
+                        f'''
+                        SELECT COUNT(*)
+                        FROM businesses b
+                        JOIN users u ON u.id = b.owner_id
+                        WHERE {business_where}
+                        ''',
+                        business_params
+                    ).fetchone()[0]
+
+                    return self.send_json(200, {
+                        'success': True,
+                        'data': rows,
+                        'meta': {
+                            'total': total,
+                            'page': page,
+                            'page_size': limit,
+                            'start_date': start_date,
+                            'end_date': end_date
+                        }
+                    })
+
+                # Kiểm tra cơ sở tồn tại
+                if not rows:
+                    raise APIError(
+                        404,
+                        'BUSINESS_NOT_FOUND',
+                        'Không tìm thấy cơ sở.'
+                    )
+
+                # Danh sách dịch vụ của cơ sở
+                services = [
+                    dict(row)
+                    for row in c.execute(
+                        '''
+                        SELECT id, name, category,
+                               price, duration_minutes, active
+                        FROM services
+                        WHERE business_id = ?
+                        ORDER BY id DESC
+                        LIMIT 100
+                        ''',
+                        (business_id,)
+                    )
+                ]
+
+                # Phân trang lịch đặt
+                booking_page_size = 20
+
+                bookings = [
+                    dict(row)
+                    for row in c.execute(
+                        f'''
+                        SELECT
+                            bk.id,
+                            bk.booking_date,
+                            bk.start_time,
+                            bk.end_time,
+                            bk.status,
+                            bk.price,
+                            s.name AS service_name,
+                            u.name AS customer_name
+                        FROM bookings bk
+                        JOIN services s ON s.id = bk.service_id
+                        JOIN users u ON u.id = bk.user_id
+                        WHERE bk.business_id = ?
+                          AND {booking_where}
+                        ORDER BY
+                            bk.booking_date DESC,
+                            bk.start_time DESC,
+                            bk.id DESC
+                        LIMIT ? OFFSET ?
+                        ''',
+                        [
+                            business_id,
+                            *booking_params,
+                            booking_page_size,
+                            (page - 1) * booking_page_size
+                        ]
+                    )
+                ]
+
+                # Mười đánh giá công khai gần đây
+                recent_reviews = [
+                    dict(row)
+                    for row in c.execute(
+                        '''
+                        SELECT
+                            r.id,
+                            r.rating,
+                            r.comment,
+                            r.created_at,
+                            u.name AS customer_name,
+                            s.name AS service_name
+                        FROM reviews r
+                        JOIN users u ON u.id = r.user_id
+                        JOIN services s ON s.id = r.service_id
+                        WHERE r.business_id = ?
+                          AND r.is_visible = 1
+                        ORDER BY r.created_at DESC, r.id DESC
+                        LIMIT 10
+                        ''',
+                        (business_id,)
+                    )
+                ]
+
+            return self.send_json(200, {
+                'success': True,
+                'data': {
+                    'business': rows[0],
+                    'services': services,
+                    'bookings': bookings,
+                    'recent_reviews': recent_reviews,
+                    'page': page,
+                    'page_size': booking_page_size,
+                    'start_date': start_date,
+                    'end_date': end_date
+                }
+            })
         if method=='POST' and p.startswith('/api/admin/businesses/') and p.endswith('/status'):
             self.admin(user)
             bid=self.int_parts(p,3)
