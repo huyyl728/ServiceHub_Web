@@ -145,6 +145,19 @@
   }
   function updateAuthUI() {
     const user = state.user;
+    // Không giữ lại dữ liệu thống kê khi mất quyền Admin
+    if (!user?.is_admin) {
+      adminBusinessState.listRequest++;
+      adminBusinessState.page = 1;
+      adminBusinessState.totalPages = 1;
+      adminBusinessState.filters = new URLSearchParams();
+
+      $("#admin-business-filter").reset();
+      $("#admin-businesses").textContent = "";
+      $("#admin-content").classList.add("hidden");
+
+      closeAdminBusinessDetail();
+    }
     $("#session-label").textContent = user ? user.name : "Chưa đăng nhập";
     $("#open-auth").classList.toggle("hidden", Boolean(user));
     $("#logout-btn").classList.toggle("hidden", !user);
@@ -280,198 +293,171 @@
     }
   }
   // S4R-04: Hiển thị đánh giá cơ sở và dịch vụ
-function renderPublicReviews(host, businessId, services) {
-  const businessSection = document.createElement("section");
+  function renderPublicReviews(host, businessId, services) {
+    const businessSection = document.createElement("section");
 
-  businessSection.className = "public-reviews";
+    businessSection.className = "public-reviews";
 
-  host.querySelector(".business-detail-contact")
-    .after(businessSection);
+    host.querySelector(".business-detail-contact").after(businessSection);
 
-  // Hiển thị đánh giá của cơ sở
-  mountPublicReviewPanel(
-    businessSection,
-    "business_id",
-    businessId,
-    "Đánh giá cơ sở"
-  );
+    // Hiển thị đánh giá của cơ sở
+    mountPublicReviewPanel(
+      businessSection,
+      "business_id",
+      businessId,
+      "Đánh giá cơ sở",
+    );
 
-  const cards = $$(".business-detail-service", host);
+    const cards = $$(".business-detail-service", host);
 
-  // Hiển thị đánh giá riêng của từng dịch vụ
-  services.forEach((service, index) => {
-    if (!cards[index]) return;
+    // Hiển thị đánh giá riêng của từng dịch vụ
+    services.forEach((service, index) => {
+      if (!cards[index]) return;
 
-    const details = document.createElement("details");
-    details.className = "service-review-details";
+      const details = document.createElement("details");
+      details.className = "service-review-details";
 
-    const summary = document.createElement("summary");
+      const summary = document.createElement("summary");
 
-    summary.textContent =
-      `Đánh giá dịch vụ: ${service.name}`;
+      summary.textContent = `Đánh giá dịch vụ: ${service.name}`;
 
-    const panel = document.createElement("section");
-    panel.className = "public-reviews";
+      const panel = document.createElement("section");
+      panel.className = "public-reviews";
 
-    details.append(summary, panel);
-    cards[index].after(details);
+      details.append(summary, panel);
+      cards[index].after(details);
 
-    let loaded = false;
+      let loaded = false;
 
-    details.addEventListener("toggle", () => {
-      if (details.open && !loaded) {
-        loaded = true;
+      details.addEventListener("toggle", () => {
+        if (details.open && !loaded) {
+          loaded = true;
 
-        mountPublicReviewPanel(
-          panel,
-          "service_id",
-          service.id,
-          `Đánh giá dịch vụ: ${service.name}`
-        );
-      }
+          mountPublicReviewPanel(
+            panel,
+            "service_id",
+            service.id,
+            `Đánh giá dịch vụ: ${service.name}`,
+          );
+        }
+      });
     });
-  });
-}
+  }
 
+  // S4R-04: Tải và hiển thị danh sách đánh giá
+  function mountPublicReviewPanel(panel, field, id, title) {
+    const heading = document.createElement("h3");
+    heading.textContent = title;
 
-// S4R-04: Tải và hiển thị danh sách đánh giá
-function mountPublicReviewPanel(panel, field, id, title) {
-  const heading = document.createElement("h3");
-  heading.textContent = title;
+    const stats = document.createElement("p");
+    stats.className = "public-review-stats";
+    stats.setAttribute("aria-live", "polite");
 
-  const stats = document.createElement("p");
-  stats.className = "public-review-stats";
-  stats.setAttribute("aria-live", "polite");
+    const list = document.createElement("div");
+    list.className = "public-review-list";
 
-  const list = document.createElement("div");
-  list.className = "public-review-list";
+    const pagination = document.createElement("div");
+    pagination.className = "public-review-pagination";
 
-  const pagination = document.createElement("div");
-  pagination.className = "public-review-pagination";
+    panel.append(heading, stats, list, pagination);
 
-  panel.append(heading, stats, list, pagination);
+    // Tải dữ liệu theo từng trang
+    async function loadPage(page) {
+      stats.textContent = "Đang tải đánh giá…";
 
-  // Tải dữ liệu theo từng trang
-  async function loadPage(page) {
-    stats.textContent = "Đang tải đánh giá…";
+      list.replaceChildren();
+      pagination.replaceChildren();
 
-    list.replaceChildren();
-    pagination.replaceChildren();
-
-    try {
-      const { data } = await API.get(
-        `/api/reviews?${field}=${encodeURIComponent(id)}&page=${page}`
-      );
-
-      if (!panel.isConnected) return;
-
-      const count = Number(data.review_count);
-
-      // Điểm trung bình và tổng lượt đánh giá
-      stats.textContent =
-        count && data.average_rating !== null
-          ? `${Number(data.average_rating).toLocaleString(
-              "vi-VN",
-              { maximumFractionDigits: 2 }
-            )}/5 ★ · ${count} lượt đánh giá`
-          : "Chưa có đánh giá công khai";
-
-      if (!data.reviews.length && count) {
-        list.textContent =
-          "Không có đánh giá ở trang này.";
-      }
-
-      // Hiển thị từng đánh giá
-      data.reviews.forEach((review) => {
-        const article = document.createElement("article");
-        article.className = "public-review-item";
-
-        const customer = document.createElement("strong");
-
-        customer.textContent =
-          review.customer_name || "Khách hàng";
-
-        const rating = document.createElement("p");
-        rating.className = "public-review-stars";
-        rating.textContent = `${review.rating}/5 ★`;
-
-        const comment = document.createElement("p");
-        comment.className = "public-review-comment";
-
-        comment.textContent =
-          review.comment || "Không có bình luận.";
-
-        const date = document.createElement("small");
-        date.className = "muted";
-        date.textContent = review.created_at || "";
-
-        article.append(
-          customer,
-          rating,
-          comment,
-          date
+      try {
+        const { data } = await API.get(
+          `/api/reviews?${field}=${encodeURIComponent(id)}&page=${page}`,
         );
 
-        list.append(article);
+        if (!panel.isConnected) return;
+
+        const count = Number(data.review_count);
+
+        // Điểm trung bình và tổng lượt đánh giá
+        stats.textContent =
+          count && data.average_rating !== null
+            ? `${Number(data.average_rating).toLocaleString("vi-VN", {
+                maximumFractionDigits: 2,
+              })}/5 ★ · ${count} lượt đánh giá`
+            : "Chưa có đánh giá công khai";
+
+        if (!data.reviews.length && count) {
+          list.textContent = "Không có đánh giá ở trang này.";
+        }
+
+        // Hiển thị từng đánh giá
+        data.reviews.forEach((review) => {
+          const article = document.createElement("article");
+          article.className = "public-review-item";
+
+          const customer = document.createElement("strong");
+
+          customer.textContent = review.customer_name || "Khách hàng";
+
+          const rating = document.createElement("p");
+          rating.className = "public-review-stars";
+          rating.textContent = `${review.rating}/5 ★`;
+
+          const comment = document.createElement("p");
+          comment.className = "public-review-comment";
+
+          comment.textContent = review.comment || "Không có bình luận.";
+
+          const date = document.createElement("small");
+          date.className = "muted";
+          date.textContent = review.created_at || "";
+
+          article.append(customer, rating, comment, date);
+
+          list.append(article);
+        });
+
+        // Tính tổng số trang
+        const pages = Math.max(1, Math.ceil(count / Number(data.page_size)));
+
+        if (pages > 1 || page > 1) {
+          const previous = pageButton("Trang trước", page - 1, page <= 1);
+
+          const position = document.createElement("span");
+
+          position.textContent = `Trang ${page}/${pages}`;
+
+          const next = pageButton("Trang sau", page + 1, page >= pages);
+
+          pagination.append(previous, position, next);
+        }
+      } catch (error) {
+        if (!panel.isConnected) return;
+
+        stats.textContent = `Không tải được đánh giá: ${error.message}`;
+
+        pagination.append(pageButton("Thử lại", page, false));
+      }
+    }
+
+    // Tạo nút chuyển trang
+    function pageButton(label, page, disabled) {
+      const button = document.createElement("button");
+
+      button.type = "button";
+      button.className = "btn btn-outline btn-small";
+
+      button.textContent = label;
+      button.disabled = disabled;
+
+      button.addEventListener("click", () => {
+        loadPage(page);
       });
 
-      // Tính tổng số trang
-      const pages = Math.max(
-        1,
-        Math.ceil(count / Number(data.page_size))
-      );
-
-      if (pages > 1 || page > 1) {
-        const previous = pageButton(
-          "Trang trước",
-          page - 1,
-          page <= 1
-        );
-
-        const position = document.createElement("span");
-
-        position.textContent = `Trang ${page}/${pages}`;
-
-        const next = pageButton(
-          "Trang sau",
-          page + 1,
-          page >= pages
-        );
-
-        pagination.append(previous, position, next);
-      }
-
-    } catch (error) {
-      if (!panel.isConnected) return;
-
-      stats.textContent =
-        `Không tải được đánh giá: ${error.message}`;
-
-      pagination.append(
-        pageButton("Thử lại", page, false)
-      );
+      return button;
     }
+
+    loadPage(1);
   }
-
-  // Tạo nút chuyển trang
-  function pageButton(label, page, disabled) {
-    const button = document.createElement("button");
-
-    button.type = "button";
-    button.className = "btn btn-outline btn-small";
-
-    button.textContent = label;
-    button.disabled = disabled;
-
-    button.addEventListener("click", () => {
-      loadPage(page);
-    });
-
-    return button;
-  }
-
-  loadPage(1);
-}
   const SEARCH_GROUPS = [
     {
       label: "Quán ăn và nhà hàng",
@@ -1040,138 +1026,125 @@ function mountPublicReviewPanel(panel, field, id, title) {
       await renderBookingReviews(
         r.data,
         $$("#booking-list .booking-card"),
-        reviewCustomerId
+        reviewCustomerId,
       );
     } catch (e) {
       toast(e.message, true);
     }
   }
   // S4R-03: Hiển thị đánh giá cho lịch đặt đã hoàn thành
-async function renderBookingReviews(bookings, cards, customerId) {
-  const eligible = bookings
-    .map((booking, index) => ({
-      booking,
-      card: cards[index]
-    }))
-    .filter(({ booking, card }) =>
-      booking.status === "completed" && card
-    );
+  async function renderBookingReviews(bookings, cards, customerId) {
+    const eligible = bookings
+      .map((booking, index) => ({
+        booking,
+        card: cards[index],
+      }))
+      .filter(({ booking, card }) => booking.status === "completed" && card);
 
-  if (!eligible.length) return;
+    if (!eligible.length) return;
 
-  const current = () => state.user?.id === customerId;
+    const current = () => state.user?.id === customerId;
 
-  const slots = eligible.map(({ booking, card }) => {
-    const slot = document.createElement("section");
+    const slots = eligible.map(({ booking, card }) => {
+      const slot = document.createElement("section");
 
-    slot.className = "customer-review";
-    slot.setAttribute(
-      "aria-label",
-      `Đánh giá lịch đặt ${booking.id}`
-    );
+      slot.className = "customer-review";
+      slot.setAttribute("aria-label", `Đánh giá lịch đặt ${booking.id}`);
 
-    slot.textContent = "Đang tải đánh giá…";
-    card.append(slot);
+      slot.textContent = "Đang tải đánh giá…";
+      card.append(slot);
 
-    return { booking, slot };
-  });
-
-  try {
-    const { data } = await API.get("/api/reviews/me");
-
-    if (!current()) return;
-
-    const reviews = new Map(
-      data.map((review) => [
-        Number(review.booking_id),
-        review
-      ])
-    );
-
-    slots.forEach(({ booking, slot }) => {
-      if (slot.isConnected) {
-        renderReviewForm(
-          slot,
-          booking,
-          reviews.get(Number(booking.id)),
-          current
-        );
-      }
+      return { booking, slot };
     });
 
-  } catch (error) {
-    if (!current()) return;
+    try {
+      const { data } = await API.get("/api/reviews/me");
 
-    slots.forEach(({ slot }) => {
-      if (slot.isConnected) {
-        slot.textContent =
-          error.status === 401
-            ? "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."
-            : `Không tải được đánh giá: ${error.message}. Hãy mở lại Lịch đặt để thử lại.`;
-      }
-    });
-  }
-}
+      if (!current()) return;
 
+      const reviews = new Map(
+        data.map((review) => [Number(review.booking_id), review]),
+      );
 
-// S4R-03: Form viết và chỉnh sửa đánh giá
-function renderReviewForm(slot, booking, review, current) {
-  slot.replaceChildren();
+      slots.forEach(({ booking, slot }) => {
+        if (slot.isConnected) {
+          renderReviewForm(
+            slot,
+            booking,
+            reviews.get(Number(booking.id)),
+            current,
+          );
+        }
+      });
+    } catch (error) {
+      if (!current()) return;
 
-  const heading = document.createElement("h4");
-
-  heading.textContent = review
-    ? "Đánh giá của bạn"
-    : "Đánh giá dịch vụ";
-
-  slot.append(heading);
-
-  // Hiển thị đánh giá cũ
-  if (review) {
-    const summary = document.createElement("p");
-
-    summary.className = "review-summary";
-
-    summary.textContent =
-      `${review.rating}/5 sao` +
-      (review.comment ? ` · ${review.comment}` : "");
-
-    slot.append(summary);
-
-    // Không cho sửa đánh giá bị ẩn
-    if (Number(review.is_visible) !== 1) {
-      const notice = document.createElement("p");
-
-      notice.className = "muted";
-      notice.textContent =
-        "Đánh giá đang bị ẩn; không thể chỉnh sửa.";
-
-      slot.append(notice);
-      return;
+      slots.forEach(({ slot }) => {
+        if (slot.isConnected) {
+          slot.textContent =
+            error.status === 401
+              ? "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."
+              : `Không tải được đánh giá: ${error.message}. Hãy mở lại Lịch đặt để thử lại.`;
+        }
+      });
     }
   }
 
-  const toggle = document.createElement("button");
+  // S4R-03: Form viết và chỉnh sửa đánh giá
+  function renderReviewForm(slot, booking, review, current) {
+    slot.replaceChildren();
 
-  toggle.type = "button";
-  toggle.className = "btn btn-outline btn-small";
+    const heading = document.createElement("h4");
 
-  toggle.textContent = review
-    ? "Chỉnh sửa đánh giá"
-    : "Viết đánh giá";
+    heading.textContent = review ? "Đánh giá của bạn" : "Đánh giá dịch vụ";
 
-  toggle.setAttribute("aria-expanded", "false");
+    slot.append(heading);
 
-  const form = document.createElement("form");
+    // Hiển thị đánh giá cũ
+    if (review) {
+      const summary = document.createElement("p");
 
-  form.className = "customer-review-form hidden";
-  form.noValidate = true;
+      summary.className = "review-summary";
 
-  form.innerHTML = `
+      summary.textContent =
+        `${review.rating}/5 sao` +
+        (review.comment ? ` · ${review.comment}` : "");
+
+      slot.append(summary);
+
+      // Không cho sửa đánh giá bị ẩn
+      if (Number(review.is_visible) !== 1) {
+        const notice = document.createElement("p");
+
+        notice.className = "muted";
+        notice.textContent = "Đánh giá đang bị ẩn; không thể chỉnh sửa.";
+
+        slot.append(notice);
+        return;
+      }
+    }
+
+    const toggle = document.createElement("button");
+
+    toggle.type = "button";
+    toggle.className = "btn btn-outline btn-small";
+
+    toggle.textContent = review ? "Chỉnh sửa đánh giá" : "Viết đánh giá";
+
+    toggle.setAttribute("aria-expanded", "false");
+
+    const form = document.createElement("form");
+
+    form.className = "customer-review-form hidden";
+    form.noValidate = true;
+
+    form.innerHTML = `
     <fieldset class="review-rating">
       <legend>Chọn số sao (bắt buộc)</legend>
 
-      ${[1, 2, 3, 4, 5].map((n) => `
+      ${[1, 2, 3, 4, 5]
+        .map(
+          (n) => `
         <label>
           <input
             type="radio"
@@ -1180,7 +1153,9 @@ function renderReviewForm(slot, booking, review, current) {
           >
           <span>★ ${n}</span>
         </label>
-      `).join("")}
+      `,
+        )
+        .join("")}
 
     </fieldset>
 
@@ -1209,119 +1184,101 @@ function renderReviewForm(slot, booking, review, current) {
     </button>
   `;
 
-  // Điền dữ liệu cũ khi chỉnh sửa
-  if (review) {
-    form.elements.rating.value = String(review.rating);
-    form.elements.comment.value = review.comment || "";
+    // Điền dữ liệu cũ khi chỉnh sửa
+    if (review) {
+      form.elements.rating.value = String(review.rating);
+      form.elements.comment.value = review.comment || "";
+    }
+
+    // Mở hoặc đóng form
+    toggle.addEventListener("click", () => {
+      const opening = form.classList.contains("hidden");
+
+      form.classList.toggle("hidden", !opening);
+
+      toggle.setAttribute("aria-expanded", String(opening));
+
+      if (opening) {
+        form.querySelector('input[name="rating"]')?.focus();
+      }
+    });
+
+    const message = form.querySelector(".form-message");
+    const submit = form.querySelector('button[type="submit"]');
+
+    let saving = false;
+
+    // Gửi dữ liệu đánh giá
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      if (saving) return;
+
+      const rating = Number(form.elements.rating.value);
+
+      const comment = form.elements.comment.value.trim();
+
+      // Kiểm tra số sao
+      if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+        return setMessage(message, "Vui lòng chọn từ 1 đến 5 sao.", true);
+      }
+
+      // Kiểm tra nội dung
+      if (comment.length > 1000) {
+        return setMessage(
+          message,
+          "Bình luận không được vượt quá 1000 ký tự.",
+          true,
+        );
+      }
+
+      // Kiểm tra đăng nhập
+      if (!current() || !API.hasToken()) {
+        return setMessage(
+          message,
+          "Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.",
+          true,
+        );
+      }
+
+      saving = true;
+      submit.disabled = true;
+
+      setMessage(message, "Đang lưu đánh giá…");
+
+      try {
+        const result = review
+          ? await API.put(`/api/reviews/${Number(review.id)}`, {
+              rating,
+              comment,
+            })
+          : await API.post("/api/reviews", {
+              booking_id: Number(booking.id),
+              rating,
+              comment,
+            });
+
+        if (!current() || !slot.isConnected) return;
+
+        toast(result.message || "Đã lưu đánh giá.");
+
+        renderReviewForm(slot, booking, result.data, current);
+      } catch (error) {
+        setMessage(
+          message,
+          error.status === 401
+            ? "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."
+            : error.message,
+          true,
+        );
+      } finally {
+        saving = false;
+        submit.disabled = false;
+      }
+    });
+
+    slot.append(toggle, form);
   }
-
-  // Mở hoặc đóng form
-  toggle.addEventListener("click", () => {
-    const opening = form.classList.contains("hidden");
-
-    form.classList.toggle("hidden", !opening);
-
-    toggle.setAttribute(
-      "aria-expanded",
-      String(opening)
-    );
-
-    if (opening) {
-      form.querySelector('input[name="rating"]')?.focus();
-    }
-  });
-
-  const message = form.querySelector(".form-message");
-  const submit = form.querySelector('button[type="submit"]');
-
-  let saving = false;
-
-  // Gửi dữ liệu đánh giá
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-
-    if (saving) return;
-
-    const rating = Number(form.elements.rating.value);
-
-    const comment = form.elements.comment.value.trim();
-
-    // Kiểm tra số sao
-    if (
-      !Number.isInteger(rating) ||
-      rating < 1 ||
-      rating > 5
-    ) {
-      return setMessage(
-        message,
-        "Vui lòng chọn từ 1 đến 5 sao.",
-        true
-      );
-    }
-
-    // Kiểm tra nội dung
-    if (comment.length > 1000) {
-      return setMessage(
-        message,
-        "Bình luận không được vượt quá 1000 ký tự.",
-        true
-      );
-    }
-
-    // Kiểm tra đăng nhập
-    if (!current() || !API.hasToken()) {
-      return setMessage(
-        message,
-        "Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.",
-        true
-      );
-    }
-
-    saving = true;
-    submit.disabled = true;
-
-    setMessage(message, "Đang lưu đánh giá…");
-
-    try {
-      const result = review
-        ? await API.put(
-            `/api/reviews/${Number(review.id)}`,
-            { rating, comment }
-          )
-        : await API.post("/api/reviews", {
-            booking_id: Number(booking.id),
-            rating,
-            comment
-          });
-
-      if (!current() || !slot.isConnected) return;
-
-      toast(result.message || "Đã lưu đánh giá.");
-
-      renderReviewForm(
-        slot,
-        booking,
-        result.data,
-        current
-      );
-
-    } catch (error) {
-      setMessage(
-        message,
-        error.status === 401
-          ? "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."
-          : error.message,
-        true
-      );
-
-    } finally {
-      saving = false;
-      submit.disabled = false;
-    }
-  });
-
-  slot.append(toggle, form);
-}
   async function cancelBooking(id) {
     if (!confirm("Bạn có chắc muốn hủy lịch đặt này?")) return;
     try {
@@ -1922,6 +1879,360 @@ function renderReviewForm(slot, booking, review, current) {
       button.textContent = "Xác nhận và lưu nhật ký";
     }
   }
+  // ==========================================
+  // S4R-06: Thống kê chi tiết cơ sở
+  // ==========================================
+
+  const adminBusinessState = {
+    page: 1,
+    totalPages: 1,
+    selectedId: null,
+    bookingPage: 1,
+    bookingTotalPages: 1,
+    listRequest: 0,
+    detailRequest: 0,
+    filters: new URLSearchParams(),
+  };
+
+  // Định dạng điểm đánh giá
+  function adminRating(value) {
+    return value == null ? "Chưa có" : `${Number(value).toFixed(2)} / 5`;
+  }
+
+  // Đóng khu vực chi tiết và vô hiệu hóa yêu cầu cũ
+  function closeAdminBusinessDetail() {
+    adminBusinessState.detailRequest++;
+    adminBusinessState.selectedId = null;
+
+    $("#admin-business-detail").classList.add("hidden");
+    $("#admin-business-detail-content").textContent = "";
+  }
+
+  // Tải danh sách và thống kê cơ sở
+  async function loadAdminBusinessList(page = 1) {
+    if (!state.user?.is_admin) return;
+
+    const requestId = ++adminBusinessState.listRequest;
+    const userId = state.user.id;
+    const list = $("#admin-businesses");
+
+    const params = new URLSearchParams(adminBusinessState.filters);
+
+    params.set("page", page);
+
+    list.textContent = "Đang tải danh sách cơ sở...";
+
+    $("#admin-business-prev").disabled = true;
+    $("#admin-business-next").disabled = true;
+
+    const isCurrent = () =>
+      requestId === adminBusinessState.listRequest &&
+      state.user?.is_admin &&
+      state.user.id === userId;
+
+    try {
+      const response = await API.get(
+        `/api/admin/businesses?${params.toString()}`,
+      );
+
+      if (!isCurrent()) return;
+
+      const businesses = response.data;
+      const meta = response.meta;
+
+      const totalPages = Math.max(1, Math.ceil(meta.total / meta.page_size));
+
+      if (page > totalPages) {
+        return loadAdminBusinessList(totalPages);
+      }
+
+      adminBusinessState.page = page;
+      adminBusinessState.totalPages = totalPages;
+
+      list.innerHTML =
+        businesses
+          .map(
+            (b) => `
+        <div class="compact-row admin-business-row">
+          <div>
+            <b>${esc(b.name)}</b>
+
+            <small>
+              ${esc(b.category)}
+              · Chủ: ${esc(b.owner_name)}
+            </small>
+
+            <small>
+              ${b.status === "active" ? "Đang hoạt động" : "Đang tạm dừng"}
+            </small>
+
+            <small>
+              ${esc(b.booking_count)} lịch đặt
+              · ${esc(b.service_count)} dịch vụ
+              · ${esc(b.review_count)} đánh giá
+              · ${esc(adminRating(b.average_rating))}
+            </small>
+          </div>
+
+          <div class="row-actions">
+            <button
+              type="button"
+              class="btn btn-dark btn-small"
+              data-admin-business-detail="${esc(b.id)}">
+              Xem chi tiết
+            </button>
+
+            <button
+              type="button"
+              class="btn btn-outline btn-small"
+              data-admin-business-id="${esc(b.id)}"
+              data-admin-business-status="${
+                b.status === "active" ? "suspended" : "active"
+              }">
+              ${b.status === "active" ? "Tạm dừng" : "Kích hoạt"}
+            </button>
+          </div>
+        </div>
+      `,
+          )
+          .join("") || '<p class="muted">Không tìm thấy cơ sở.</p>';
+
+      $("#admin-business-page").textContent = `Trang ${page} / ${totalPages}`;
+
+      $("#admin-business-prev").disabled = page <= 1;
+
+      $("#admin-business-next").disabled = page >= totalPages;
+
+      // Làm mới chi tiết nếu cơ sở đang được mở
+      const selectedId = adminBusinessState.selectedId;
+
+      if (selectedId !== null) {
+        if (businesses.some((b) => String(b.id) === String(selectedId))) {
+          await loadAdminBusinessDetail(
+            selectedId,
+            adminBusinessState.bookingPage,
+          );
+        } else {
+          closeAdminBusinessDetail();
+        }
+      }
+    } catch (error) {
+      if (!isCurrent()) return;
+
+      list.textContent = error.message;
+      closeAdminBusinessDetail();
+    }
+  }
+
+  // Tải thông tin chi tiết của cơ sở được chọn
+  async function loadAdminBusinessDetail(id, page = 1) {
+    if (!state.user?.is_admin) return;
+
+    const requestId = ++adminBusinessState.detailRequest;
+    const userId = state.user.id;
+
+    adminBusinessState.selectedId = String(id);
+
+    const panel = $("#admin-business-detail");
+    const content = $("#admin-business-detail-content");
+
+    panel.classList.remove("hidden");
+    content.textContent = "Đang tải thông tin cơ sở...";
+
+    $("#admin-booking-prev").disabled = true;
+    $("#admin-booking-next").disabled = true;
+
+    const params = new URLSearchParams();
+
+    for (const key of ["start_date", "end_date"]) {
+      const value = adminBusinessState.filters.get(key);
+
+      if (value) params.set(key, value);
+    }
+
+    params.set("page", page);
+
+    const isCurrent = () =>
+      requestId === adminBusinessState.detailRequest &&
+      state.user?.is_admin &&
+      state.user.id === userId;
+
+    try {
+      const response = await API.get(
+        `/api/admin/businesses/${encodeURIComponent(id)}/detail?${params}`,
+      );
+
+      if (!isCurrent()) return;
+
+      const {
+        business: b,
+        services,
+        bookings,
+        recent_reviews,
+        page_size,
+      } = response.data;
+
+      const totalPages = Math.max(1, Math.ceil(b.booking_count / page_size));
+
+      if (page > totalPages) {
+        return loadAdminBusinessDetail(id, totalPages);
+      }
+
+      adminBusinessState.bookingPage = page;
+      adminBusinessState.bookingTotalPages = totalPages;
+
+      // Các chỉ số thống kê
+      const metrics = [
+        ["Tổng lịch đặt", b.booking_count],
+        ["Hoàn thành", b.completed_count],
+        ["Đã hủy", b.cancelled_count],
+        ["Chờ xác nhận", b.pending_count],
+        ["Đã xác nhận", b.confirmed_count],
+        ["Dịch vụ", b.service_count],
+        ["Lượt đánh giá", b.review_count],
+        ["Điểm trung bình", adminRating(b.average_rating)],
+      ];
+
+      // Danh sách lịch đặt
+      const bookingRows = bookings
+        .map(
+          (item) => `
+        <tr>
+          <td>${esc(item.customer_name)}</td>
+          <td>${esc(item.service_name)}</td>
+          <td>${esc(item.booking_date)}</td>
+          <td>
+            ${esc(item.start_time)} - ${esc(item.end_time)}
+          </td>
+          <td>
+            <span class="status-pill ${statusClass(item.status)}">
+              ${esc(statusName(item.status))}
+            </span>
+          </td>
+        </tr>
+      `,
+        )
+        .join("");
+
+      content.innerHTML = `
+        <div class="admin-business-info">
+          <h2>${esc(b.name)}</h2>
+
+          <p>Chủ cơ sở: ${esc(b.owner_name)}</p>
+          <p>Danh mục: ${esc(b.category)}</p>
+          <p>Địa chỉ: ${esc(b.address)}</p>
+          <p>Điện thoại: ${esc(b.phone)}</p>
+          <p>${esc(b.description || "")}</p>
+        </div>
+
+        <div class="metric-grid">
+          ${metrics
+            .map(
+              ([label, value]) => `
+            <div class="metric-card">
+              <span>${esc(label)}</span>
+              <strong>${esc(value)}</strong>
+            </div>
+          `,
+            )
+            .join("")}
+        </div>
+
+        <h3>Danh sách dịch vụ</h3>
+
+        <p class="muted">
+          Hiển thị ${services.length} / ${esc(b.service_count)} dịch vụ.
+        </p>
+
+        <div class="compact-list">
+          ${
+            services
+              .map(
+                (s) => `
+            <div class="compact-row">
+              <div>
+                <b>${esc(s.name)}</b>
+                <small>
+                  ${esc(s.duration_minutes)} phút
+                  · ${esc(s.category)}
+                  · ${s.active ? "Hoạt động" : "Tạm ẩn"}
+                </small>
+              </div>
+              <strong>${esc(money(s.price))}</strong>
+            </div>
+          `,
+              )
+              .join("") || '<p class="muted">Chưa có dịch vụ.</p>'
+          }
+        </div>
+
+        <h3>Đánh giá công khai gần đây</h3>
+
+        <p class="muted">Tối đa 10 đánh giá mới nhất.</p>
+
+        <div class="compact-list">
+          ${
+            recent_reviews
+              .map(
+                (r) => `
+            <div class="admin-business-review">
+              <b>${esc(r.customer_name)}</b>
+
+              <span class="admin-business-stars">
+                ${"★".repeat(Math.max(0, Math.min(5, Number(r.rating) || 0)))}
+              </span>
+
+              <small>
+                ${esc(r.service_name)}
+                · ${esc(r.created_at)}
+              </small>
+
+              <p>${esc(r.comment || "Không có bình luận.")}</p>
+            </div>
+          `,
+              )
+              .join("") || '<p class="muted">Chưa có đánh giá công khai.</p>'
+          }
+        </div>
+
+        <h3>Danh sách lịch đặt</h3>
+
+        <div class="admin-business-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Khách hàng</th>
+                <th>Dịch vụ</th>
+                <th>Ngày đặt</th>
+                <th>Khung giờ</th>
+                <th>Trạng thái</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              ${
+                bookingRows ||
+                `
+                <tr>
+                  <td colspan="5">Không có lịch đặt.</td>
+                </tr>
+              `
+              }
+            </tbody>
+          </table>
+        </div>
+      `;
+
+      $("#admin-booking-page").textContent = `Trang ${page} / ${totalPages}`;
+
+      $("#admin-booking-prev").disabled = page <= 1;
+
+      $("#admin-booking-next").disabled = page >= totalPages;
+    } catch (error) {
+      if (!isCurrent()) return;
+      content.textContent = error.message;
+    }
+  }
   async function loadAdmin() {
     if (!state.user?.is_admin) {
       $("#admin-locked").classList.remove("hidden");
@@ -1929,13 +2240,16 @@ function renderReviewForm(slot, booking, review, current) {
       return;
     }
     try {
-      const [stats, apps, reports, businesses, audit] = await Promise.all([
+      const userId = state.user.id;
+
+      const [stats, apps, reports, audit] = await Promise.all([
         API.get("/api/admin/stats"),
         API.get("/api/admin/applications"),
         API.get("/api/admin/reports"),
-        API.get("/api/admin/businesses"),
         API.get("/api/admin/audit"),
       ]);
+
+      if (!state.user?.is_admin || state.user.id !== userId) return;
       $("#admin-locked").classList.add("hidden");
       $("#admin-content").classList.remove("hidden");
       $("#admin-stats").innerHTML = [
@@ -1956,13 +2270,8 @@ function renderReviewForm(slot, booking, review, current) {
               `<article class="booking-card"><div><h3>${esc(a.business_name)} <span class="status-pill ${statusClass(a.status)}">${esc(statusName(a.status))}</span></h3><p>Người đăng ký: ${esc(a.user_name)} · ${esc(a.user_email)}</p><p>${esc(a.category)} · ${esc(a.address)} · ${esc(a.phone)}</p><p>${esc(a.description || "Không có mô tả")}</p>${a.review_note ? `<p>Ghi chú: ${esc(a.review_note)}</p>` : ""}</div><div class="booking-right"><div class="row-actions">${a.status === "pending" ? `<button class="btn btn-dark btn-small" data-review="approve" data-id="${a.id}">Chấp thuận</button><button class="btn btn-outline btn-small" data-review="changes" data-id="${a.id}">Yêu cầu bổ sung</button><button class="btn btn-outline btn-small" data-review="reject" data-id="${a.id}">Từ chối</button>` : ""}</div></div></article>`,
           )
           .join("") || '<p class="muted">Chưa có hồ sơ đăng ký.</p>';
-      $("#admin-businesses").innerHTML =
-        businesses.data
-          .map(
-            (b) =>
-              `<div class="compact-row"><div><b>${esc(b.name)}</b><small>${esc(b.category)} · Chủ: ${esc(b.owner_name)} · ${Number(b.service_count)} dịch vụ · ${b.status === "active" ? "Đang hoạt động" : "Đang tạm dừng"}</small></div><button class="btn btn-outline btn-small" data-admin-business-id="${b.id}" data-admin-business-status="${b.status === "active" ? "suspended" : "active"}">${b.status === "active" ? "Tạm dừng" : "Kích hoạt"}</button></div>`,
-          )
-          .join("") || '<p class="muted">Chưa có cơ sở.</p>';
+
+      await loadAdminBusinessList(adminBusinessState.page);
       const counts = reports.data.booking_statuses || {};
       $("#admin-reports").innerHTML = [
         ["Cơ sở hoạt động", reports.data.active_businesses],
@@ -2260,6 +2569,91 @@ function renderReviewForm(slot, booking, review, current) {
       img.classList.remove("hidden");
     });
     $("#admin-refresh").addEventListener("click", loadAdmin);
+    // S4R-06: Các sự kiện quản lý thống kê cơ sở
+
+    const businessFilter = $("#admin-business-filter");
+
+    businessFilter.addEventListener("submit", (event) => {
+      event.preventDefault();
+
+      const start = $("#admin-business-start").value;
+      const end = $("#admin-business-end").value;
+
+      if (start && end && start > end) {
+        toast("Khoảng thời gian không hợp lệ.", true);
+        return;
+      }
+
+      adminBusinessState.filters = new URLSearchParams({
+        q: $("#admin-business-search").value.trim(),
+        status: $("#admin-business-status").value,
+        start_date: start,
+        end_date: end,
+      });
+
+      closeAdminBusinessDetail();
+      loadAdminBusinessList(1);
+    });
+
+    businessFilter.addEventListener("reset", () => {
+      adminBusinessState.filters = new URLSearchParams();
+
+      closeAdminBusinessDetail();
+      loadAdminBusinessList(1);
+    });
+
+    $("#admin-businesses").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-admin-business-detail]");
+
+      if (!button || !state.user?.is_admin) return;
+
+      loadAdminBusinessDetail(button.dataset.adminBusinessDetail, 1);
+
+      $("#admin-business-detail").scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+
+    $("#admin-business-prev").addEventListener("click", () => {
+      if (adminBusinessState.page > 1) {
+        closeAdminBusinessDetail();
+        loadAdminBusinessList(adminBusinessState.page - 1);
+      }
+    });
+
+    $("#admin-business-next").addEventListener("click", () => {
+      if (adminBusinessState.page < adminBusinessState.totalPages) {
+        closeAdminBusinessDetail();
+        loadAdminBusinessList(adminBusinessState.page + 1);
+      }
+    });
+
+    $("#admin-business-close").addEventListener(
+      "click",
+      closeAdminBusinessDetail,
+    );
+
+    $("#admin-booking-prev").addEventListener("click", () => {
+      if (adminBusinessState.selectedId && adminBusinessState.bookingPage > 1) {
+        loadAdminBusinessDetail(
+          adminBusinessState.selectedId,
+          adminBusinessState.bookingPage - 1,
+        );
+      }
+    });
+
+    $("#admin-booking-next").addEventListener("click", () => {
+      if (
+        adminBusinessState.selectedId &&
+        adminBusinessState.bookingPage < adminBusinessState.bookingTotalPages
+      ) {
+        loadAdminBusinessDetail(
+          adminBusinessState.selectedId,
+          adminBusinessState.bookingPage + 1,
+        );
+      }
+    });
     // S4R-07: Review moderation events
 
     $("#admin-review-filter").addEventListener("change", () =>
