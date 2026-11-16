@@ -1,0 +1,93 @@
+/* S4R-03: Customer review form */
+
+.customer-review {
+  grid-column: 1 / -1;
+  min-width: 0;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.customer-review h4,
+.customer-review p {
+  margin: 0;
+}
+
+.customer-review .review-summary {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.customer-review > .btn,
+.customer-review-form > .btn {
+  justify-self: start;
+}
+
+.customer-review-form {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.customer-review-form > label {
+  display: grid;
+  gap: 6px;
+}
+
+.customer-review-form textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+}
+
+.review-rating {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.review-rating legend {
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.review-rating label {
+  position: relative;
+  cursor: pointer;
+}
+
+.review-rating input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.review-rating span {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+  color: #855a00;
+}
+
+.review-rating input:checked + span {
+  background: #fff0b4;
+  border-color: #855a00;
+  font-weight: 700;
+}
+
+.review-rating input:focus-visible + span {
+  outline: 2px solid var(--success);
+  outline-offset: 2px;
+}
+
+.customer-review-form button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
