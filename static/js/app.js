@@ -819,7 +819,9 @@
       return;
     }
     try {
+      const reviewCustomerId = state.user.id;
       const r = await API.get("/api/bookings/me");
+      if (state.user?.id !== reviewCustomerId) return;
       $("#booking-list").innerHTML = r.data.length
         ? r.data
             .map(
@@ -837,10 +839,291 @@
             )
             .join("")
         : '<div class="empty-state"><h2>Bạn chưa có lịch đặt</h2><p>Khám phá dịch vụ và đặt lịch đầu tiên của bạn.</p><button class="btn btn-dark" data-view="services">Khám phá dịch vụ</button></div>';
+      await renderBookingReviews(
+        r.data,
+        $$("#booking-list .booking-card"),
+        reviewCustomerId
+      );
     } catch (e) {
       toast(e.message, true);
     }
   }
+  // S4R-03: Hiển thị đánh giá cho lịch đặt đã hoàn thành
+async function renderBookingReviews(bookings, cards, customerId) {
+  const eligible = bookings
+    .map((booking, index) => ({
+      booking,
+      card: cards[index]
+    }))
+    .filter(({ booking, card }) =>
+      booking.status === "completed" && card
+    );
+
+  if (!eligible.length) return;
+
+  const current = () => state.user?.id === customerId;
+
+  const slots = eligible.map(({ booking, card }) => {
+    const slot = document.createElement("section");
+
+    slot.className = "customer-review";
+    slot.setAttribute(
+      "aria-label",
+      `Đánh giá lịch đặt ${booking.id}`
+    );
+
+    slot.textContent = "Đang tải đánh giá…";
+    card.append(slot);
+
+    return { booking, slot };
+  });
+
+  try {
+    const { data } = await API.get("/api/reviews/me");
+
+    if (!current()) return;
+
+    const reviews = new Map(
+      data.map((review) => [
+        Number(review.booking_id),
+        review
+      ])
+    );
+
+    slots.forEach(({ booking, slot }) => {
+      if (slot.isConnected) {
+        renderReviewForm(
+          slot,
+          booking,
+          reviews.get(Number(booking.id)),
+          current
+        );
+      }
+    });
+
+  } catch (error) {
+    if (!current()) return;
+
+    slots.forEach(({ slot }) => {
+      if (slot.isConnected) {
+        slot.textContent =
+          error.status === 401
+            ? "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."
+            : `Không tải được đánh giá: ${error.message}. Hãy mở lại Lịch đặt để thử lại.`;
+      }
+    });
+  }
+}
+
+
+// S4R-03: Form viết và chỉnh sửa đánh giá
+function renderReviewForm(slot, booking, review, current) {
+  slot.replaceChildren();
+
+  const heading = document.createElement("h4");
+
+  heading.textContent = review
+    ? "Đánh giá của bạn"
+    : "Đánh giá dịch vụ";
+
+  slot.append(heading);
+
+  // Hiển thị đánh giá cũ
+  if (review) {
+    const summary = document.createElement("p");
+
+    summary.className = "review-summary";
+
+    summary.textContent =
+      `${review.rating}/5 sao` +
+      (review.comment ? ` · ${review.comment}` : "");
+
+    slot.append(summary);
+
+    // Không cho sửa đánh giá bị ẩn
+    if (Number(review.is_visible) !== 1) {
+      const notice = document.createElement("p");
+
+      notice.className = "muted";
+      notice.textContent =
+        "Đánh giá đang bị ẩn; không thể chỉnh sửa.";
+
+      slot.append(notice);
+      return;
+    }
+  }
+
+  const toggle = document.createElement("button");
+
+  toggle.type = "button";
+  toggle.className = "btn btn-outline btn-small";
+
+  toggle.textContent = review
+    ? "Chỉnh sửa đánh giá"
+    : "Viết đánh giá";
+
+  toggle.setAttribute("aria-expanded", "false");
+
+  const form = document.createElement("form");
+
+  form.className = "customer-review-form hidden";
+  form.noValidate = true;
+
+  form.innerHTML = `
+    <fieldset class="review-rating">
+      <legend>Chọn số sao (bắt buộc)</legend>
+
+      ${[1, 2, 3, 4, 5].map((n) => `
+        <label>
+          <input
+            type="radio"
+            name="rating"
+            value="${n}"
+          >
+          <span>★ ${n}</span>
+        </label>
+      `).join("")}
+
+    </fieldset>
+
+    <label>
+      Bình luận (tối đa 1000 ký tự)
+
+      <textarea
+        name="comment"
+        rows="3"
+        maxlength="1000"
+        placeholder="Chia sẻ trải nghiệm của bạn"
+      ></textarea>
+    </label>
+
+    <p
+      class="form-message"
+      role="status"
+      aria-live="polite"
+    ></p>
+
+    <button
+      class="btn btn-dark btn-small"
+      type="submit"
+    >
+      ${review ? "Lưu đánh giá" : "Gửi đánh giá"}
+    </button>
+  `;
+
+  // Điền dữ liệu cũ khi chỉnh sửa
+  if (review) {
+    form.elements.rating.value = String(review.rating);
+    form.elements.comment.value = review.comment || "";
+  }
+
+  // Mở hoặc đóng form
+  toggle.addEventListener("click", () => {
+    const opening = form.classList.contains("hidden");
+
+    form.classList.toggle("hidden", !opening);
+
+    toggle.setAttribute(
+      "aria-expanded",
+      String(opening)
+    );
+
+    if (opening) {
+      form.querySelector('input[name="rating"]')?.focus();
+    }
+  });
+
+  const message = form.querySelector(".form-message");
+  const submit = form.querySelector('button[type="submit"]');
+
+  let saving = false;
+
+  // Gửi dữ liệu đánh giá
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    if (saving) return;
+
+    const rating = Number(form.elements.rating.value);
+
+    const comment = form.elements.comment.value.trim();
+
+    // Kiểm tra số sao
+    if (
+      !Number.isInteger(rating) ||
+      rating < 1 ||
+      rating > 5
+    ) {
+      return setMessage(
+        message,
+        "Vui lòng chọn từ 1 đến 5 sao.",
+        true
+      );
+    }
+
+    // Kiểm tra nội dung
+    if (comment.length > 1000) {
+      return setMessage(
+        message,
+        "Bình luận không được vượt quá 1000 ký tự.",
+        true
+      );
+    }
+
+    // Kiểm tra đăng nhập
+    if (!current() || !API.hasToken()) {
+      return setMessage(
+        message,
+        "Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.",
+        true
+      );
+    }
+
+    saving = true;
+    submit.disabled = true;
+
+    setMessage(message, "Đang lưu đánh giá…");
+
+    try {
+      const result = review
+        ? await API.put(
+            `/api/reviews/${Number(review.id)}`,
+            { rating, comment }
+          )
+        : await API.post("/api/reviews", {
+            booking_id: Number(booking.id),
+            rating,
+            comment
+          });
+
+      if (!current() || !slot.isConnected) return;
+
+      toast(result.message || "Đã lưu đánh giá.");
+
+      renderReviewForm(
+        slot,
+        booking,
+        result.data,
+        current
+      );
+
+    } catch (error) {
+      setMessage(
+        message,
+        error.status === 401
+          ? "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."
+          : error.message,
+        true
+      );
+
+    } finally {
+      saving = false;
+      submit.disabled = false;
+    }
+  });
+
+  slot.append(toggle, form);
+}
   async function cancelBooking(id) {
     if (!confirm("Bạn có chắc muốn hủy lịch đặt này?")) return;
     try {
