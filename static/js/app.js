@@ -69,6 +69,10 @@
       media_uploaded: "Cập nhật ảnh cơ sở",
       application_approved: "Duyệt hồ sơ cơ sở",
       application_rejected: "Từ chối hồ sơ cơ sở",
+      review_created: "Tạo đánh giá",
+      review_updated: "Chỉnh sửa đánh giá",
+      review_hidden: "Ẩn đánh giá",
+      review_restored: "Khôi phục đánh giá",
     })[a] || a.replaceAll("_", " ");
   function toast(message, error = false) {
     const el = document.createElement("div");
@@ -1202,6 +1206,245 @@
       toast(e.message, true);
     }
   }
+  // ==========================================
+  // S4R-07: REVIEW MODERATION
+  // ==========================================
+
+  const adminReviewState = {
+    page: 1,
+    totalPages: 1,
+    requestId: 0,
+  };
+
+  async function loadAdminReviews(page = 1) {
+    if (!state.user?.is_admin) return;
+
+    const requestId = ++adminReviewState.requestId;
+    const userId = state.user.id;
+    const filter = $("#admin-review-filter");
+    const list = $("#admin-reviews-list");
+    const status = filter.value;
+
+    list.textContent = "Đang tải danh sách đánh giá...";
+
+    $("#admin-review-prev").disabled = true;
+    $("#admin-review-next").disabled = true;
+
+    try {
+      const result = await API.get(
+        `/api/admin/reviews?status=${encodeURIComponent(status)}&page=${page}`,
+      );
+
+      if (
+        requestId !== adminReviewState.requestId ||
+        !state.user?.is_admin ||
+        state.user.id !== userId
+      )
+        return;
+
+      const data = result.data;
+
+      const totalPages = Math.max(
+        1,
+        Math.ceil(data.filtered_count / data.page_size),
+      );
+
+      if (page > totalPages) {
+        return loadAdminReviews(totalPages);
+      }
+
+      adminReviewState.page = data.page;
+      adminReviewState.totalPages = totalPages;
+
+      // Thống kê đánh giá
+      $("#admin-reviews-summary").innerHTML = [
+        ["Tổng đánh giá", data.summary.total],
+        ["Đang hiển thị", data.summary.visible],
+        ["Đã bị ẩn", data.summary.hidden],
+      ]
+        .map(
+          ([label, value]) => `
+            <div class="metric-card">
+              <span>${esc(label)}</span>
+              <strong>${esc(value)}</strong>
+            </div>
+          `,
+        )
+        .join("");
+
+      // Danh sách đánh giá
+      list.innerHTML =
+        data.reviews
+          .map((review) => {
+            const visible = Number(review.is_visible) === 1;
+
+            const rating = Math.max(
+              0,
+              Math.min(5, Math.trunc(Number(review.rating) || 0)),
+            );
+
+            const stars = "★".repeat(rating) + "☆".repeat(5 - rating);
+
+            return `
+            <article class="review-item-card ${visible ? "" : "is-hidden"}">
+
+              <div class="review-item-header">
+                <div>
+                  <strong>${esc(review.customer_name)}</strong>
+                  <div class="muted">
+                    ${esc(review.business_name)}
+                    · ${esc(review.service_name)}
+                  </div>
+                </div>
+
+                <span class="status-pill ${visible ? "completed" : "rejected"}">
+                  ${visible ? "Đang hiển thị" : "Đã bị ẩn"}
+                </span>
+              </div>
+
+              <div class="review-stars">
+                ${stars} (${rating}/5)
+              </div>
+
+              <p class="review-comment-text">
+                ${esc(review.comment || "Không có bình luận.")}
+              </p>
+
+              <small class="muted">
+                ${esc(review.created_at)} UTC
+              </small>
+
+              ${
+                review.moderation_reason
+                  ? `
+                    <div class="review-mod-meta">
+                      <strong>Kiểm duyệt gần nhất</strong>
+                      <div>Lý do: ${esc(review.moderation_reason)}</div>
+                      <div>Người xử lý: ${esc(review.moderator_name || "Admin")}</div>
+                      <div>Thời gian: ${esc(review.moderated_at)} UTC</div>
+                    </div>
+                  `
+                  : ""
+              }
+
+              <div class="review-actions">
+                <button
+                  type="button"
+                  class="btn ${visible ? "btn-outline" : "btn-dark"} btn-small"
+                  data-moderation-id="${esc(review.id)}"
+                  data-moderation-status="${visible ? "hidden" : "visible"}"
+                >
+                  ${visible ? "Ẩn đánh giá" : "Khôi phục đánh giá"}
+                </button>
+              </div>
+
+            </article>
+          `;
+          })
+          .join("") || '<p class="muted">Không có đánh giá phù hợp.</p>';
+
+      // Phân trang
+      $("#admin-review-page").textContent =
+        `Trang ${data.page} / ${totalPages}`;
+
+      $("#admin-review-prev").disabled = data.page <= 1;
+
+      $("#admin-review-next").disabled = data.page >= totalPages;
+    } catch (error) {
+      if (
+        requestId !== adminReviewState.requestId ||
+        !state.user?.is_admin ||
+        state.user.id !== userId
+      )
+        return;
+
+      list.textContent = error.message || "Không thể tải danh sách đánh giá.";
+
+      $("#admin-reviews-summary").textContent = "";
+      $("#admin-review-page").textContent = "Không tải được dữ liệu";
+
+      toast(error.message, true);
+    }
+  }
+  function openReviewModeration(reviewId, targetStatus) {
+    if (!state.user?.is_admin) return;
+
+    if (!/^[0-9]{1,19}$/.test(reviewId)) return;
+
+    if (!["visible", "hidden"].includes(targetStatus)) return;
+
+    const form = $("#review-moderation-form");
+
+    if (form.dataset.submitting === "1") return;
+
+    form.reset();
+
+    form.elements.review_id.value = reviewId;
+    form.elements.target_status.value = targetStatus;
+
+    $("#review-mod-title").textContent =
+      targetStatus === "hidden" ? "Ẩn đánh giá" : "Khôi phục đánh giá";
+
+    setMessage($("#review-mod-message"), "");
+
+    openModal("review-moderation-modal");
+
+    form.elements.reason.focus();
+  }
+  async function submitReviewModeration(event) {
+    event.preventDefault();
+
+    if (!state.user?.is_admin) return;
+
+    const form = event.currentTarget;
+
+    if (form.dataset.submitting === "1") return;
+
+    const reviewId = form.elements.review_id.value;
+    const targetStatus = form.elements.target_status.value;
+    const reason = form.elements.reason.value.trim();
+
+    const message = $("#review-mod-message");
+    const button = $('button[type="submit"]', form);
+
+    if (
+      !/^[0-9]{1,19}$/.test(reviewId) ||
+      !["visible", "hidden"].includes(targetStatus)
+    ) {
+      setMessage(message, "Dữ liệu kiểm duyệt không hợp lệ.", true);
+      return;
+    }
+
+    if (reason.length < 5 || reason.length > 500) {
+      setMessage(message, "Lý do phải từ 5 đến 500 ký tự.", true);
+      return;
+    }
+
+    form.dataset.submitting = "1";
+    button.disabled = true;
+    button.textContent = "Đang xử lý...";
+
+    try {
+      const result = await API.post(`/api/admin/reviews/${reviewId}/moderate`, {
+        target_status: targetStatus,
+        reason,
+      });
+
+      closeModals();
+
+      toast(result.message || "Kiểm duyệt thành công.");
+
+      form.reset();
+
+      await loadAdmin();
+    } catch (error) {
+      setMessage(message, error.message, true);
+    } finally {
+      delete form.dataset.submitting;
+      button.disabled = false;
+      button.textContent = "Xác nhận và lưu nhật ký";
+    }
+  }
   async function loadAdmin() {
     if (!state.user?.is_admin) {
       $("#admin-locked").classList.remove("hidden");
@@ -1266,6 +1509,7 @@
               `<div class="compact-row"><div><b>${esc(activityLabel(a.action))}</b><small>${esc(a.actor_name || "Hệ thống")} · ${esc(a.entity_type || "")} #${esc(a.entity_id || "")} · ${esc(a.created_at)}</small></div></div>`,
           )
           .join("") || '<p class="muted">Chưa có hoạt động.</p>';
+      await loadAdminReviews(adminReviewState.page);
     } catch (e) {
       toast(e.message, true);
     }
@@ -1539,12 +1783,44 @@
       img.classList.remove("hidden");
     });
     $("#admin-refresh").addEventListener("click", loadAdmin);
+    // S4R-07: Review moderation events
+
+    $("#admin-review-filter").addEventListener("change", () =>
+      loadAdminReviews(1),
+    );
+
+    $("#admin-review-prev").addEventListener("click", () => {
+      if (adminReviewState.page > 1) {
+        loadAdminReviews(adminReviewState.page - 1);
+      }
+    });
+
+    $("#admin-review-next").addEventListener("click", () => {
+      if (adminReviewState.page < adminReviewState.totalPages) {
+        loadAdminReviews(adminReviewState.page + 1);
+      }
+    });
+
+    $("#admin-reviews-list").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-moderation-id]");
+
+      if (!button) return;
+
+      openReviewModeration(
+        button.dataset.moderationId,
+        button.dataset.moderationStatus,
+      );
+    });
+
+    $("#review-moderation-form").addEventListener(
+      "submit",
+      submitReviewModeration,
+    );
     $("#mobile-menu").addEventListener("click", () =>
       $(".main-nav").classList.toggle("open"),
     );
   }
   async function init() {
-
     bindEvents();
     renderDiscoveryStep();
     authMode("login");

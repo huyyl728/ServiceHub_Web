@@ -892,9 +892,31 @@
                 <option value="hidden">Đã bị ẩn</option>
               </select>
             </div>
+            <div id="admin-reviews-summary" class="metric-grid"></div>
             <div id="admin-reviews-list" class="stack-list" aria-live="polite">
               <p class="muted">Đang tải danh sách đánh giá...</p>
             </div>
+            <div id="admin-reviews-pagination" class="review-actions">
+  <button
+    id="admin-review-prev"
+    class="btn btn-outline btn-small"
+    type="button"
+    disabled
+  >
+    Trang trước
+  </button>
+
+  <span id="admin-review-page" class="muted">Trang 1 / 1</span>
+
+  <button
+    id="admin-review-next"
+    class="btn btn-outline btn-small"
+    type="button"
+    disabled
+  >
+    Trang sau
+  </button>
+</div>
           </article>
           <!-- KẾT THÚC CODE THÊM MỚI -->
         </div>
@@ -1050,6 +1072,7 @@
               rows="3"
               required
               minlength="5"
+              maxlength="500"
               placeholder="Ví dụ: Nội dung chứa từ ngữ không phù hợp / Đánh giá spam..."
             ></textarea>
           </label>

@@ -192,3 +192,61 @@ body{background:#FCFEFF}
   box-shadow: 0 0 0 3px #17a6a11a;
 }
 /* KẾT THÚC CODE THÊM MỚI */
+
+/* S4R-07: ServiceHub UI consistency */
+
+#admin-reviews-panel #admin-review-filter {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 11px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--paper);
+  max-width: 100%;
+}
+
+#admin-review-filter:focus {
+  outline: none;
+  border-color: #17a6a1;
+  box-shadow: 0 0 0 3px #17a6a11a;
+}
+
+#admin-reviews-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+#admin-reviews-panel .review-item-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+#admin-reviews-panel .review-comment-text {
+  white-space: pre-wrap;
+}
+
+#admin-reviews-pagination {
+  justify-content: center;
+  margin-top: 18px;
+}
+
+#admin-reviews-panel button:disabled,
+#review-moderation-modal button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@media (max-width: 520px) {
+  #admin-reviews-summary {
+    grid-template-columns: 1fr;
+  }
+
+  #admin-review-filter {
+    width: 100%;
+  }
+
+  #admin-reviews-panel .review-actions .btn {
+    white-space: normal;
+  }
+}
