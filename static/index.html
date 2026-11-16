@@ -33,7 +33,9 @@
         "url": "http://localhost:8000"
       }
     </script>
+    <link rel="stylesheet" href="/static/css/public-reviews.css" />
     <link rel="stylesheet" href="/static/css/styles.css" />
+    <link rel="stylesheet" href="/static/css/review-form.css" />
   </head>
   <body>
     <header class="topbar">
@@ -843,17 +845,122 @@
             </div>
             <div id="application-review-list" class="stack-list"></div>
           </article>
+                    <!-- S4R-06: Quản lý và thống kê chi tiết cơ sở -->
           <article class="panel">
             <div class="panel-heading">
               <div>
-                <h2>Quản lý trạng thái cơ sở</h2>
+                <h2>Quản lý và thống kê cơ sở</h2>
                 <p class="muted">
-                  Tạm dừng hoặc kích hoạt cơ sở; quyết định được ghi nhận trong
-                  nhật ký admin.
+                  Theo dõi lịch đặt, dịch vụ và đánh giá của từng cơ sở.
                 </p>
               </div>
             </div>
-            <div id="admin-businesses" class="compact-list"></div>
+
+            <form id="admin-business-filter"
+                  class="admin-business-filter">
+
+              <label>
+                Tìm kiếm
+                <input
+                  type="search"
+                  id="admin-business-search"
+                  placeholder="Tên cơ sở, danh mục, chủ cơ sở..."
+                  maxlength="120"
+                />
+              </label>
+
+              <label>
+                Trạng thái
+                <select id="admin-business-status">
+                  <option value="all">Tất cả</option>
+                  <option value="active">Đang hoạt động</option>
+                  <option value="suspended">Đang tạm dừng</option>
+                </select>
+              </label>
+
+              <label>
+                Từ ngày
+                <input type="date" id="admin-business-start" />
+              </label>
+
+              <label>
+                Đến ngày
+                <input type="date" id="admin-business-end" />
+              </label>
+
+              <div class="row-actions">
+                <button type="submit" class="btn btn-dark">
+                  Áp dụng
+                </button>
+
+                <button type="reset" class="btn btn-outline">
+                  Đặt lại
+                </button>
+              </div>
+            </form>
+
+            <p class="muted">
+              Bộ lọc ngày chỉ áp dụng cho lịch đặt.
+              Điểm sao tính từ toàn bộ đánh giá đang hiển thị.
+            </p>
+
+            <div id="admin-businesses"
+                 class="compact-list"
+                 aria-live="polite">
+            </div>
+
+            <div class="admin-business-pagination">
+              <button id="admin-business-prev"
+                      class="btn btn-outline btn-small"
+                      type="button" disabled>
+                Trang trước
+              </button>
+
+              <span id="admin-business-page">Trang 1 / 1</span>
+
+              <button id="admin-business-next"
+                      class="btn btn-outline btn-small"
+                      type="button" disabled>
+                Trang sau
+              </button>
+            </div>
+
+            <section id="admin-business-detail"
+                     class="admin-business-detail hidden">
+
+              <div class="panel-heading">
+                <h2>Chi tiết cơ sở</h2>
+
+                <button id="admin-business-close"
+                        type="button"
+                        class="btn btn-outline btn-small">
+                  Đóng
+                </button>
+              </div>
+
+              <div id="admin-business-detail-content"
+                   aria-live="polite">
+              </div>
+
+              <div class="admin-business-pagination">
+                <button id="admin-booking-prev"
+                        type="button"
+                        class="btn btn-outline btn-small"
+                        disabled>
+                  Trang trước
+                </button>
+
+                <span id="admin-booking-page">Trang 1 / 1</span>
+
+                <button id="admin-booking-next"
+                        type="button"
+                        class="btn btn-outline btn-small"
+                        disabled>
+                  Trang sau
+                </button>
+              </div>
+
+            </section>
           </article>
           <article class="panel">
             <div class="panel-heading">
@@ -877,6 +984,48 @@
             </div>
             <div id="admin-audit" class="compact-list"></div>
           </article>
+          <!-- BẮT ĐẦU CODE THÊM MỚI CHO S4R-07: ADMIN KIỂM DUYỆT ĐÁNH GIÁ -->
+          <article class="panel" id="admin-reviews-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Kiểm duyệt đánh giá &amp; bình luận</h2>
+                <p class="muted">
+                  Ẩn hoặc hiện đánh giá của khách hàng kèm lý do; mọi thao tác được ghi vào nhật ký hệ thống.
+                </p>
+              </div>
+              <select id="admin-review-filter" aria-label="Lọc trạng thái đánh giá">
+                <option value="all">Tất cả đánh giá</option>
+                <option value="visible">Đang hiển thị</option>
+                <option value="hidden">Đã bị ẩn</option>
+              </select>
+            </div>
+            <div id="admin-reviews-summary" class="metric-grid"></div>
+            <div id="admin-reviews-list" class="stack-list" aria-live="polite">
+              <p class="muted">Đang tải danh sách đánh giá...</p>
+            </div>
+            <div id="admin-reviews-pagination" class="review-actions">
+  <button
+    id="admin-review-prev"
+    class="btn btn-outline btn-small"
+    type="button"
+    disabled
+  >
+    Trang trước
+  </button>
+
+  <span id="admin-review-page" class="muted">Trang 1 / 1</span>
+
+  <button
+    id="admin-review-next"
+    class="btn btn-outline btn-small"
+    type="button"
+    disabled
+  >
+    Trang sau
+  </button>
+</div>
+          </article>
+          <!-- KẾT THÚC CODE THÊM MỚI -->
         </div>
       </section>
     </main>
@@ -1002,6 +1151,46 @@
         </div>
       </div>
     </div>
+    <!-- BẮT ĐẦU CODE THÊM MỚI CHO S4R-07: MODAL NHẬP LÝ DO KIỂM DUYỆT -->
+    <div
+      id="review-moderation-modal"
+      class="modal hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="review-mod-title"
+    >
+      <div class="modal-backdrop" data-close-modal></div>
+      <div class="modal-card">
+        <button class="modal-close" data-close-modal aria-label="Đóng">
+          ×
+        </button>
+        <p class="eyebrow">REVIEW MODERATION</p>
+        <h2 id="review-mod-title">Kiểm duyệt đánh giá</h2>
+        <p id="review-mod-subtitle" class="muted">
+          Vui lòng nhập lý do ẩn/hiện để lưu vào nhật ký quản trị (Audit Log).
+        </p>
+        <form id="review-moderation-form" class="form-stack">
+          <input type="hidden" name="review_id" />
+          <input type="hidden" name="target_status" />
+          <label>
+            Lý do thao tác (Bắt buộc)
+            <textarea
+              name="reason"
+              rows="3"
+              required
+              minlength="5"
+              maxlength="500"
+              placeholder="Ví dụ: Nội dung chứa từ ngữ không phù hợp / Đánh giá spam..."
+            ></textarea>
+          </label>
+          <button class="btn btn-dark btn-block" type="submit">
+            Xác nhận và lưu nhật ký
+          </button>
+          <p id="review-mod-message" class="form-message"></p>
+        </form>
+      </div>
+    </div>
+    <!-- KẾT THÚC CODE THÊM MỚI -->
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
     <script src="/static/js/api.js" defer></script>
     <script src="/static/js/analytics.js" defer></script>

@@ -56,3 +56,56 @@ CREATE INDEX IF NOT EXISTS idx_bookings_user ON bookings(user_id, booking_date, 
 CREATE INDEX IF NOT EXISTS idx_bookings_business ON bookings(business_id, booking_date, start_time);
 CREATE INDEX IF NOT EXISTS idx_applications_user ON business_applications(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON audit_logs(actor_id, created_at DESC);
+-- ==========================================
+-- S4R-02: REVIEW AND RATING SYSTEM
+-- ==========================================
+
+CREATE TABLE IF NOT EXISTS reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    booking_id INTEGER NOT NULL UNIQUE
+        REFERENCES bookings(id),
+
+    user_id INTEGER NOT NULL
+        REFERENCES users(id),
+
+    business_id INTEGER NOT NULL
+        REFERENCES businesses(id),
+
+    service_id INTEGER NOT NULL
+        REFERENCES services(id),
+
+    rating INTEGER NOT NULL
+        CHECK (
+            typeof(rating) = 'integer'
+            AND rating BETWEEN 1 AND 5
+        ),
+
+    comment TEXT NOT NULL DEFAULT ''
+        CHECK (length(comment) <= 1000),
+
+    is_visible INTEGER NOT NULL DEFAULT 1
+        CHECK (is_visible IN (0, 1)),
+
+    created_at TEXT NOT NULL
+        DEFAULT CURRENT_TIMESTAMP,
+
+    updated_at TEXT NOT NULL
+        DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_reviews_business
+ON reviews(business_id, is_visible, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_reviews_service
+ON reviews(service_id, is_visible, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_reviews_user
+ON reviews(user_id, created_at DESC);
+
+-- ==========================================
+-- S4R-07: REVIEW MODERATION
+-- ==========================================
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
+ON audit_logs(entity_type, entity_id, id DESC);

@@ -22,7 +22,7 @@ Nếu `.env.admin` đã có, script dừng để không vô tình đổi mật k
 4. Khi bản mới khởi động, server tạo admin nếu chưa có; hoặc cập nhật mật khẩu admin cùng email và thu hồi phiên cũ nếu mật khẩu thay đổi. Không tự nâng quyền một tài khoản khách hàng đã tồn tại cùng email.
 5. Đăng nhập bằng form Email/Mật khẩu thông thường. Tài khoản admin sẽ có mục Quản trị. Xác minh nút demo đã biến mất và mật khẩu mặc định cũ không còn đăng nhập được.
 
-Giữ các biến `SERVICEHUB_BANK_*` hiện có trên Render nếu đang dùng QR; không thay bằng giá trị trống trong `.env.example`. File mẫu chỉ dùng hướng dẫn cấu hình. Với runtime Python, giữ Start Command `SERVICEHUB_PORT=$PORT python server.py` và `SERVICEHUB_HOST=0.0.0.0`. Với Docker, giữ cấu hình khởi động có sẵn trong Dockerfile.
+ServiceHub hiện đã loại bỏ luồng thanh toán/VietQR; không cần biến cấu hình ngân hàng trong phiên bản này. File `.env.example` chỉ là cấu hình mẫu không chứa tài khoản thật. Với runtime Python, giữ Start Command `SERVICEHUB_PORT=$PORT python server.py` và `SERVICEHUB_HOST=0.0.0.0`. Với Docker, giữ cấu hình khởi động có sẵn trong Dockerfile.
 
 Hướng dẫn Render chính thức: https://render.com/docs/configure-environment-variables và https://render.com/docs/deploys.
 
@@ -44,4 +44,4 @@ python3 scripts/run_checks.py
 
 Đổi `SERVICEHUB_ADMIN_PASSWORD` trong Render Environment và triển khai lại. Các phiên của admin đó bị thu hồi khi mật khẩu thay đổi. Đồng bộ giá trị trong `.env` local nếu cần cùng thông tin đăng nhập trên hai môi trường. Không dùng đường dẫn web công khai để tạo hoặc nâng quyền admin.
 
-Đây là thay đổi bảo vệ đăng nhập; không tự giải quyết các vấn đề ví demo/tiền thật, hoàn tiền, tính điểm hoặc lưu trữ Render đã nêu trong báo cáo QA.
+Đây là thay đổi bảo vệ đăng nhập. Tài khoản demo không được tự tạo ở môi trường public; tham khảo `docs/LOCAL_DEMO.md` để chạy demo chỉ trên localhost.
