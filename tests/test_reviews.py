@@ -88,6 +88,10 @@ class ReviewIntegrationTests(unittest.TestCase):
             'owner@servicehub.local',
             'Owner@12345'
         )
+        cls.admin = cls.login(
+            'admin@servicehub.local',
+            'Admin@12345'
+        )
 
         with closing(sqlite3.connect(cls.db)) as c:
 
@@ -741,6 +745,499 @@ class ReviewIntegrationTests(unittest.TestCase):
                     ).fetchall(),
                     []
                 )
+    # ==========================================
+    # S4R-07: REVIEW MODERATION TESTS
+    # ==========================================
 
+    def make_moderation_review(self, rating=5):
+
+        code, result = self.create_review(
+            self.create_booking(),
+            rating=rating
+        )
+
+        self.assertEqual(code, 201, result)
+
+        return result['data']['id']
+
+    def moderate_review(
+        self, review_id, status,
+        reason='Ly do kiem duyet hop le'
+    ):
+
+        return self.request(
+            f'/api/admin/reviews/{review_id}/moderate',
+            'POST',
+            {
+                'target_status': status,
+                'reason': reason
+            },
+            self.admin
+        )
+
+    # MOD-01
+    def test_admin_can_list_reviews(self):
+
+        review_id = self.make_moderation_review()
+
+        code, result = self.request(
+            '/api/admin/reviews',
+            token=self.admin
+        )
+
+        self.assertEqual(code, 200, result)
+
+        data = result['data']
+
+        self.assertEqual(data['summary']['total'], 1)
+        self.assertEqual(data['summary']['visible'], 1)
+        self.assertEqual(data['summary']['hidden'], 0)
+        self.assertEqual(data['reviews'][0]['id'], review_id)
+        self.assertEqual(data['reviews'][0]['rating'], 5)
+        self.assertIsNone(
+            data['reviews'][0]['moderation_reason']
+        )
+
+    # MOD-02
+    def test_admin_review_list_permissions(self):
+
+        endpoint = '/api/admin/reviews'
+
+        self.assertEqual(
+            self.request(endpoint)[0],
+            401
+        )
+
+        for token in (self.customer, self.owner):
+
+            code, result = self.request(
+                endpoint,
+                token=token
+            )
+
+            self.assertEqual(code, 403, result)
+            self.assertEqual(
+                result['error']['code'],
+                'ADMIN_REQUIRED'
+            )
+
+    # MOD-03
+    def test_admin_review_status_filter(self):
+
+        visible_id = self.make_moderation_review(5)
+        hidden_id = self.make_moderation_review(2)
+
+        code, result = self.moderate_review(
+            hidden_id, 'hidden'
+        )
+
+        self.assertEqual(code, 200, result)
+
+        for status, expected in (
+            ('visible', {visible_id}),
+            ('hidden', {hidden_id}),
+            ('all', {visible_id, hidden_id})
+        ):
+
+            code, result = self.request(
+                f'/api/admin/reviews?status={status}',
+                token=self.admin
+            )
+
+            self.assertEqual(code, 200, result)
+
+            actual = {
+                r['id']
+                for r in result['data']['reviews']
+            }
+
+            self.assertEqual(actual, expected)
+            self.assertEqual(
+                result['data']['filtered_count'],
+                len(expected)
+            )
+
+    # MOD-04
+    def test_admin_can_hide_review(self):
+
+        self.make_moderation_review(5)
+        review_id = self.make_moderation_review(1)
+
+        reason = 'Binh luan spam'
+
+        code, result = self.moderate_review(
+            review_id,
+            'hidden',
+            reason
+        )
+
+        self.assertEqual(code, 200, result)
+        self.assertEqual(
+            result['data']['is_visible'], 0
+        )
+        self.assertEqual(
+            result['data']['moderation_reason'],
+            reason
+        )
+
+        with closing(sqlite3.connect(self.db)) as c:
+
+            row = c.execute(
+                '''
+                SELECT is_visible FROM reviews
+                WHERE id = ?
+                ''',
+                (review_id,)
+            ).fetchone()
+
+            self.assertEqual(row[0], 0)
+
+            log = c.execute(
+                '''
+                SELECT action, details, actor_id,
+                       created_at
+                FROM audit_logs
+                WHERE entity_type = 'review'
+                  AND entity_id = ?
+                  AND action = 'review_hidden'
+                ORDER BY id DESC
+                LIMIT 1
+                ''',
+                (str(review_id),)
+            ).fetchone()
+
+            admin_id = c.execute(
+                'SELECT id FROM users WHERE email = ?',
+                ('admin@servicehub.local',)
+            ).fetchone()[0]
+
+            self.assertIsNotNone(log)
+            self.assertEqual(log[0], 'review_hidden')
+            self.assertEqual(log[1], reason)
+            self.assertEqual(log[2], admin_id)
+            self.assertTrue(log[3])
+
+        for field, target_id in (
+            ('service_id', self.service_id),
+            ('business_id', self.business_id)
+        ):
+
+            code, result = self.request(
+                f'/api/reviews?{field}={target_id}'
+            )
+
+            self.assertEqual(code, 200, result)
+            self.assertEqual(
+                result['data']['average_rating'], 5.0
+            )
+            self.assertEqual(
+                result['data']['review_count'], 1
+            )
+            self.assertNotIn(
+                review_id,
+                [
+                    r['id']
+                    for r in result['data']['reviews']
+                ]
+            )
+
+    # MOD-05
+    def test_admin_can_restore_review(self):
+
+        review_id = self.make_moderation_review(4)
+
+        code, result = self.moderate_review(
+            review_id, 'hidden'
+        )
+
+        self.assertEqual(code, 200, result)
+
+        code, result = self.moderate_review(
+            review_id,
+            'visible',
+            'Da kiem tra lai noi dung'
+        )
+
+        self.assertEqual(code, 200, result)
+        self.assertEqual(
+            result['data']['is_visible'], 1
+        )
+
+        code, result = self.request(
+            f'/api/reviews?service_id={self.service_id}'
+        )
+
+        self.assertEqual(code, 200, result)
+        self.assertEqual(
+            result['data']['review_count'], 1
+        )
+        self.assertEqual(
+            result['data']['average_rating'], 4.0
+        )
+
+        with closing(sqlite3.connect(self.db)) as c:
+
+            actions = c.execute(
+                '''
+                SELECT action
+                FROM audit_logs
+                WHERE entity_type = 'review'
+                  AND entity_id = ?
+                  AND action IN (
+                      'review_hidden',
+                      'review_restored'
+                  )
+                ORDER BY id
+                ''',
+                (str(review_id),)
+            ).fetchall()
+
+            self.assertEqual(
+                [row[0] for row in actions],
+                ['review_hidden', 'review_restored']
+            )
+
+        code, result = self.request(
+            '/api/admin/reviews?status=visible',
+            token=self.admin
+        )
+
+        self.assertEqual(code, 200, result)
+        self.assertEqual(
+            result['data']['reviews'][0]['moderation_reason'],
+            'Da kiem tra lai noi dung'
+        )
+
+    # MOD-06
+    def test_moderation_requires_admin(self):
+
+        review_id = self.make_moderation_review()
+
+        endpoint = (
+            f'/api/admin/reviews/{review_id}/moderate'
+        )
+
+        payload = {
+            'target_status': 'hidden',
+            'reason': 'Kiem thu phan quyen'
+        }
+
+        for token, expected in (
+            (None, 401),
+            (self.customer, 403),
+            (self.owner, 403)
+        ):
+
+            code, result = self.request(
+                endpoint,
+                'POST',
+                payload,
+                token
+            )
+
+            self.assertEqual(code, expected, result)
+
+        with closing(sqlite3.connect(self.db)) as c:
+
+            actual = c.execute(
+                'SELECT is_visible FROM reviews WHERE id=?',
+                (review_id,)
+            ).fetchone()[0]
+
+            self.assertEqual(actual, 1)
+
+            count = c.execute(
+                '''
+                SELECT COUNT(*) FROM audit_logs
+                WHERE entity_type = 'review'
+                  AND entity_id = ?
+                  AND action = 'review_hidden'
+                ''',
+                (str(review_id),)
+            ).fetchone()[0]
+
+            self.assertEqual(count, 0)
+
+    # MOD-07
+    def test_invalid_moderation_payload(self):
+
+        review_id = self.make_moderation_review()
+
+        endpoint = (
+            f'/api/admin/reviews/{review_id}/moderate'
+        )
+
+        invalid_payloads = [
+            {},
+            [],
+            {
+                'target_status': 'deleted',
+                'reason': 'Ly do hop le'
+            },
+            {
+                'target_status': 'hidden',
+                'reason': ''
+            },
+            {
+                'target_status': 'hidden',
+                'reason': 'abc'
+            },
+            {
+                'target_status': 'hidden',
+                'reason': '     '
+            },
+            {
+                'target_status': 'hidden',
+                'reason': 'x' * 501
+            },
+            {
+                'target_status': 'hidden',
+                'reason': 12345
+            }
+        ]
+
+        for payload in invalid_payloads:
+
+            with self.subTest(payload=payload):
+
+                code, result = self.request(
+                    endpoint,
+                    'POST',
+                    payload,
+                    self.admin
+                )
+
+                self.assertEqual(code, 400, result)
+
+        with closing(sqlite3.connect(self.db)) as c:
+
+            actual = c.execute(
+                'SELECT is_visible FROM reviews WHERE id=?',
+                (review_id,)
+            ).fetchone()[0]
+
+            self.assertEqual(actual, 1)
+
+    # MOD-08
+    def test_duplicate_and_missing_moderation(self):
+
+        review_id = self.make_moderation_review()
+
+        code, result = self.moderate_review(
+            review_id, 'hidden'
+        )
+
+        self.assertEqual(code, 200, result)
+
+        code, result = self.moderate_review(
+            review_id, 'hidden'
+        )
+
+        self.assertEqual(code, 409, result)
+        self.assertEqual(
+            result['error']['code'],
+            'REVIEW_STATUS_UNCHANGED'
+        )
+
+        code, result = self.moderate_review(
+            9223372036854775807, 'hidden'
+        )
+
+        self.assertEqual(code, 404, result)
+
+        code, result = self.moderate_review(
+            0, 'hidden'
+        )
+
+        self.assertEqual(code, 400, result)
+
+    # MOD-09
+    def test_admin_review_pagination(self):
+
+        for _ in range(21):
+            self.make_moderation_review()
+
+        first_code, first = self.request(
+            '/api/admin/reviews?page=1',
+            token=self.admin
+        )
+
+        second_code, second = self.request(
+            '/api/admin/reviews?page=2',
+            token=self.admin
+        )
+
+        self.assertEqual(first_code, 200, first)
+        self.assertEqual(second_code, 200, second)
+
+        page1 = first['data']
+        page2 = second['data']
+
+        self.assertEqual(page1['filtered_count'], 21)
+        self.assertEqual(page1['page_size'], 20)
+        self.assertEqual(len(page1['reviews']), 20)
+        self.assertEqual(len(page2['reviews']), 1)
+
+        ids1 = {r['id'] for r in page1['reviews']}
+        ids2 = {r['id'] for r in page2['reviews']}
+
+        self.assertFalse(ids1 & ids2)
+
+        for query in (
+            'page=0',
+            'page=-1',
+            'page=abc',
+            'page=100001',
+            'page=1&page=2',
+            'status=invalid',
+            'status=all&status=hidden'
+        ):
+
+            code, result = self.request(
+                '/api/admin/reviews?' + query,
+                token=self.admin
+            )
+
+            self.assertEqual(code, 400, result)
+
+    # MOD-10
+    def test_concurrent_review_moderation(self):
+
+        review_id = self.make_moderation_review()
+
+        def hide():
+            return self.moderate_review(
+                review_id, 'hidden'
+            )[0]
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+
+            first = pool.submit(hide)
+            second = pool.submit(hide)
+
+            results = [
+                first.result(),
+                second.result()
+            ]
+
+        self.assertEqual(
+            sorted(results),
+            [200, 409]
+        )
+
+        with closing(sqlite3.connect(self.db)) as c:
+
+            count = c.execute(
+                '''
+                SELECT COUNT(*)
+                FROM audit_logs
+                WHERE entity_type = 'review'
+                  AND entity_id = ?
+                  AND action = 'review_hidden'
+                ''',
+                (str(review_id),)
+            ).fetchone()[0]
+
+            self.assertEqual(count, 1)
 if __name__ == '__main__':
     unittest.main()
