@@ -9,6 +9,8 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -23,9 +25,18 @@ class S4R08BookingRegressionTests(unittest.TestCase):
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
         cls.base = f"http://127.0.0.1:{port}"
-        env = dict(os.environ, SERVICEHUB_HOST="127.0.0.1",
-                   SERVICEHUB_PORT=str(port),
-                   SERVICEHUB_DB_PATH=str(Path(cls.temp.name) / "s4r08.db"))
+                # Cô lập môi trường kiểm thử khỏi cấu hình Local Demo
+        env = dict(
+            os.environ,
+            SERVICEHUB_HOST="127.0.0.1",
+            SERVICEHUB_PORT=str(port),
+            SERVICEHUB_DB_PATH=str(
+                Path(cls.temp.name) / "s4r08.db"
+            ),
+            SERVICEHUB_LOCAL_DEMO="0",
+            SERVICEHUB_ADMIN_EMAIL="",
+            SERVICEHUB_ADMIN_PASSWORD=""
+        )
         cls.process = subprocess.Popen(
             [sys.executable, "tests/fixture_server.py"], cwd=ROOT, env=env,
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -70,7 +81,9 @@ class S4R08BookingRegressionTests(unittest.TestCase):
             with urllib.request.urlopen(req, timeout=10) as response:
                 return response.status, json.load(response)
         except urllib.error.HTTPError as error:
-            return error.code, json.loads(error.read())
+            # Đóng phản hồi HTTP sau khi đọc dữ liệu lỗi
+            with closing(error):
+                return error.code, json.loads(error.read())
 
     @classmethod
     def login(cls, email, password):
@@ -138,6 +151,206 @@ class S4R08BookingRegressionTests(unittest.TestCase):
         after = self.request("/api/admin/stats", token=self.admin)
         self.assertEqual(after[0], 200, after[1])
         self.assertEqual(after[1]["data"]["bookings"], before_count + 1)
+                # Khách hàng đánh giá lịch đặt đã hoàn thành
+        review_payload = {
+            "booking_id": booking_id,
+            "rating": 5,
+            "comment": "Kiểm thử tích hợp Sprint 4"
+        }
+
+        code, review = self.request(
+            "/api/reviews",
+            "POST",
+            review_payload,
+            self.customer
+        )
+
+        self.assertEqual(code, 201, review)
+
+        review_id = review["data"]["id"]
+
+        # Không cho phép đánh giá trùng lịch đặt
+        code, duplicate = self.request(
+            "/api/reviews",
+            "POST",
+            review_payload,
+            self.customer
+        )
+
+        self.assertEqual(code, 409, duplicate)
+
+        self.assertEqual(
+            duplicate["error"]["code"],
+            "REVIEW_ALREADY_EXISTS"
+        )
+
+        # Kiểm tra thống kê chi tiết cơ sở
+        detail_url = (
+            f"/api/admin/businesses/{business_id}/detail"
+        )
+
+        code, result = self.request(
+            detail_url,
+            token=self.admin
+        )
+
+        self.assertEqual(code, 200, result)
+
+        detail = result["data"]
+        stats = detail["business"]
+
+        self.assertEqual(stats["id"], business_id)
+
+        self.assertTrue(
+            any(
+                item["id"] == booking_id
+                for item in detail["bookings"]
+            )
+        )
+
+        self.assertTrue(
+            any(
+                item["id"] == review_id
+                for item in detail["recent_reviews"]
+            )
+        )
+
+        # Đối chiếu số liệu với SQLite kiểm thử
+        db_path = Path(self.temp.name) / "s4r08.db"
+
+        with closing(sqlite3.connect(db_path)) as c:
+            booking_count = c.execute(
+                """
+                SELECT COUNT(*)
+                FROM bookings
+                WHERE business_id = ?
+                """,
+                (business_id,)
+            ).fetchone()[0]
+
+            service_count = c.execute(
+                """
+                SELECT COUNT(*)
+                FROM services
+                WHERE business_id = ?
+                """,
+                (business_id,)
+            ).fetchone()[0]
+
+            review_count, average_rating = c.execute(
+                """
+                SELECT COUNT(*), ROUND(AVG(rating), 2)
+                FROM reviews
+                WHERE business_id = ?
+                  AND is_visible = 1
+                """,
+                (business_id,)
+            ).fetchone()
+
+            statuses = dict(c.execute(
+                """
+                SELECT status, COUNT(*)
+                FROM bookings
+                WHERE business_id = ?
+                GROUP BY status
+                """,
+                (business_id,)
+            ).fetchall())
+
+        self.assertEqual(
+            stats["booking_count"], booking_count
+        )
+
+        self.assertEqual(
+            stats["service_count"], service_count
+        )
+
+        self.assertEqual(
+            stats["review_count"], review_count
+        )
+
+        self.assertEqual(
+            stats["average_rating"], average_rating
+        )
+
+        for status in (
+            "pending", "confirmed",
+            "completed", "cancelled"
+        ):
+            self.assertEqual(
+                stats[f"{status}_count"],
+                statuses.get(status, 0)
+            )
+
+        # Kiểm tra bộ lọc ngày sử dụng dịch vụ
+        code, filtered = self.request(
+            f"{detail_url}?start_date={date}&end_date={date}",
+            token=self.admin
+        )
+
+        self.assertEqual(code, 200, filtered)
+
+        self.assertEqual(
+            filtered["data"]["business"]["booking_count"],
+            1
+        )
+
+        self.assertEqual(
+            filtered["data"]["bookings"][0]["id"],
+            booking_id
+        )
+
+        # Kiểm tra đồng bộ khi ẩn và khôi phục đánh giá
+        for target in ("hidden", "visible"):
+
+            code, moderation = self.request(
+                f"/api/admin/reviews/{review_id}/moderate",
+                "POST",
+                {
+                    "target_status": target,
+                    "reason": "Kiểm thử tích hợp Sprint 4"
+                },
+                self.admin
+            )
+
+            self.assertEqual(code, 200, moderation)
+
+            code, updated = self.request(
+                detail_url,
+                token=self.admin
+            )
+
+            self.assertEqual(code, 200, updated)
+
+            current = updated["data"]["business"]
+
+            expected_count = (
+                review_count - 1
+                if target == "hidden"
+                else review_count
+            )
+
+            self.assertEqual(
+                current["review_count"],
+                expected_count
+            )
+
+            # Đối chiếu thống kê Admin với đánh giá công khai
+            code, public = self.request(
+                f"/api/reviews?business_id={business_id}"
+            )
+
+            self.assertEqual(code, 200, public)
+
+            self.assertEqual(
+                current["review_count"],
+                public["data"]["review_count"]
+            )
+
+            self.assertEqual(
+                current["average_rating"],
+                public["data"]["average_rating"]
+            )
 
     def test_role_boundaries_customer_owner_admin(self):
         managed = self.request("/api/businesses/managed", token=self.owner)
@@ -159,20 +372,71 @@ class S4R08BookingRegressionTests(unittest.TestCase):
             self.customer)
         self.assertEqual(code, 400, body)
 
-    def test_booking_review_and_duplicate_review_gap_is_explicit(self):
-        # The supplied schema and API currently expose no customer booking-review
-        # table/endpoint. Keep this as an explicit regression sentinel rather than
-        # pretending the requested review behavior has passed.
-        code, body = self.request("/api/reviews", "POST", {
-            "booking_id": 1, "rating": 5, "comment": "S4R-08 test"},
-            self.customer)
+    def test_admin_business_statistics_permissions(self):
+
+        # Admin lấy danh sách cơ sở
+        code, result = self.request(
+            "/api/admin/businesses",
+            token=self.admin
+        )
+
+        self.assertEqual(code, 200, result)
+        self.assertTrue(result["data"])
+
+        business_id = result["data"][0]["id"]
+
+        endpoints = [
+            "/api/admin/businesses",
+            f"/api/admin/businesses/{business_id}/detail"
+        ]
+        # Kiểm tra xác thực và phân quyền Admin
+        for endpoint in endpoints:
+            for role, token, expected_status, expected_error in (
+                ("Customer", self.customer, 403, "ADMIN_REQUIRED"),
+                ("Owner", self.owner, 403, "ADMIN_REQUIRED"),
+                ("Guest", None, 401, "AUTH_REQUIRED")
+            ):
+                with self.subTest(
+                    endpoint=endpoint,
+                    role=role
+                ):
+                    code, body = self.request(
+                        endpoint,
+                        token=token
+                    )
+
+                    self.assertEqual(
+                        code, expected_status, body
+                    )
+
+                    self.assertEqual(
+                        body["error"]["code"],
+                        expected_error
+                    )
+
+        # Kiểm tra dữ liệu đầu vào không hợp lệ
+        invalid_urls = [
+            "/api/admin/businesses?page=0",
+            "/api/admin/businesses?status=unknown",
+            "/api/admin/businesses?start_date=invalid",
+            "/api/admin/businesses?start_date=2026-12-31&end_date=2026-01-01"
+        ]
+
+        for endpoint in invalid_urls:
+            code, body = self.request(
+                endpoint,
+                token=self.admin
+            )
+
+            self.assertEqual(code, 400, body)
+
+        # Kiểm tra mã cơ sở không tồn tại
+        code, body = self.request(
+            "/api/admin/businesses/9223372036854775807/detail",
+            token=self.admin
+        )
+
         self.assertEqual(code, 404, body)
-        self.assertEqual(body["error"]["code"], "ENDPOINT_NOT_FOUND")
-        # The duplicate-review rule cannot be exercised until review creation exists.
-        second_code, _ = self.request("/api/reviews", "POST", {
-            "booking_id": 1, "rating": 5, "comment": "Duplicate attempt"},
-            self.customer)
-        self.assertEqual(second_code, 404)
 
 
 if __name__ == "__main__":

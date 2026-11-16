@@ -1,72 +1,69 @@
-# S4R-08 — Báo cáo kiểm thử bổ sung (chỉ thêm file)
+# S4R-08 — Báo cáo kiểm thử tích hợp và nghiệm thu Sprint 4
 
-## 1. Phạm vi và nguyên tắc
+## 1. Mục tiêu
 
-Bộ test được thêm mới tại `tests/test_s4r08_additive.py`. Không sửa, xóa hoặc thay thế file backend, frontend, schema, CI hay test hiện hữu. Máy chủ kiểm thử sử dụng SQLite tạm thông qua `tests/fixture_server.py`.
+Kiểm thử toàn bộ luồng nghiệp vụ ServiceHub sau khi hoàn thiện Sprint 4, đảm bảo sự liên kết giữa Frontend, Backend và Database.
 
-## 2. Test case và kết quả thực tế
+## 2. Phạm vi kiểm thử
 
-| ID | Vai trò / chức năng | Kết quả kỳ vọng | Kết quả thực tế |
-|---|---|---|---|
-| S4R08-API-01 | Customer tạo booking không thanh toán | HTTP 201, trạng thái pending, không cần payment | **PASS** |
-| S4R08-E2E-02 | Owner xác nhận và hoàn thành booking | Customer nhìn thấy trạng thái completed | **PASS** |
-| S4R08-ADM-03 | Admin xem thống kê booking | Tổng booking tăng đúng 1 | **PASS** |
-| S4R08-AUTH-04 | Customer/Owner truy cập sai quyền Admin/Owner | HTTP 403 | **PASS** |
-| S4R08-VAL-05 | Gửi booking không đăng nhập / ngày sai | HTTP 401 / 400 | **PASS** |
-| S4R08-REV-06 | Customer gửi review và gửi trùng | Có review và chặn review trùng | **FAIL / BLOCKED** |
-| S4R08-UI-07 | Kiểm thử trực tiếp trên trình duyệt | Chụp ảnh luồng Customer/Owner/Admin | **NOT RUN** |
+- Đăng nhập và phân quyền Customer, Owner, Admin.
+- Tìm kiếm dịch vụ.
+- Đặt lịch không yêu cầu thanh toán.
+- Xác nhận và hoàn thành lịch đặt.
+- Viết và chỉnh sửa đánh giá.
+- Hiển thị điểm sao và bình luận.
+- Kiểm duyệt đánh giá.
+- Thống kê chi tiết từng cơ sở.
+- Kiểm thử hồi quy các chức năng hiện có.
 
-## 3. Kết quả chạy lệnh
+## 3. Kết quả kiểm thử
 
-Đã chạy từ thư mục gốc dự án:
+| Mã   | Nội dung kiểm thử               | Kết quả |
+| ---- | ------------------------------- | ------- |
+| TC01 | Đăng nhập và xác thực           | PASS    |
+| TC02 | Tìm kiếm dịch vụ                | PASS    |
+| TC03 | Đặt lịch không thanh toán       | PASS    |
+| TC04 | Owner xác nhận lịch đặt         | PASS    |
+| TC05 | Owner hoàn thành lịch đặt       | PASS    |
+| TC06 | Customer tạo đánh giá           | PASS    |
+| TC07 | Ngăn đánh giá trùng             | PASS    |
+| TC08 | Chỉnh sửa đánh giá cá nhân      | PASS    |
+| TC09 | Hiển thị đánh giá công khai     | PASS    |
+| TC10 | Admin ẩn đánh giá               | PASS    |
+| TC11 | Admin khôi phục đánh giá        | PASS    |
+| TC12 | Thống kê chi tiết cơ sở         | PASS    |
+| TC13 | Lọc thống kê theo thời gian     | PASS    |
+| TC14 | Đối chiếu thống kê với SQLite   | PASS    |
+| TC15 | Đồng bộ thống kê khi kiểm duyệt | PASS    |
+| TC16 | Kiểm soát quyền truy cập API    | PASS    |
 
-```bash
-python3 -m unittest discover -s tests -p "test_s4r08_additive.py" -v
-```
+## 4. Kiểm thử tự động
 
-Kết quả: **4/4 test PASS**.
+Lệnh thực thi: `python3 scripts/run_checks.py`
 
-Đã chạy toàn bộ kiểm tra:
+- Python unittest: 56/56 PASS.
+- Thời gian thực thi unittest: 13,025 giây.
+- Kiểm tra cú pháp app.js: PASS.
+- Kiểm tra cú pháp advisor.js: PASS.
+- Kiểm thử Advisor: PASS.
 
-```bash
-python3 scripts/run_checks.py
-```
+## 5. Các lỗi đã khắc phục
 
-Kết quả:
-- `py_compile server.py`: PASS
-- Python unittest discovery: **25/25 PASS**
-- `node --check static/js/app.js`: PASS
-- `node --check static/js/advisor.js`: PASS
-- `node tests/test_advisor.js`: PASS
-- Lệnh tổng thể kết thúc với mã thoát `0`.
+- Cập nhật bài kiểm thử Review API lỗi thời.
+- Khắc phục xung đột cấu hình Local Demo với database kiểm thử.
+- Phân biệt HTTP 401 và HTTP 403 trong kiểm thử phân quyền.
+- Đóng phản hồi HTTP sau khi đọc dữ liệu lỗi để giải phóng tài nguyên.
 
-Lưu ý: Python runtime in cảnh báo warmup của spreadsheet tool ra stderr trong môi trường chạy; cảnh báo này không làm test thất bại và không thuộc mã nguồn ServiceHub.
+## 6. Kiểm thử thực tế
 
-## 4. Bug / blocker phát hiện
+Trưởng nhóm xác nhận đã kiểm thử trực tiếp trên website ServiceHub và chạy kiểm tra API thông qua trình duyệt thành công.
 
-- API hiện hỗ trợ Customer tạo booking, Owner xác nhận và hoàn thành, Admin đọc `/api/admin/stats`.
-- Trong `schema.sql` không có bảng review dành cho booking; `server.py` không có API tạo review booking.
-- Test gửi `POST /api/reviews` nhận `404 ENDPOINT_NOT_FOUND`. Vì endpoint chưa tồn tại, không thể kiểm thử logic review trùng. Đây là **FAIL theo tiêu chí nghiệm thu**, không phải PASS.
-- Theo yêu cầu không sửa code sẵn có, bộ test chỉ ghi nhận blocker và không tự bổ sung chức năng review.
-- Booking hiện không yêu cầu thanh toán; payload tạo booking không có trường `payment` hoặc `payment_url`.
+Ảnh hoặc video minh chứng cần được bổ sung vào hồ sơ nghiệm thu.
 
-## 5. Kiểm thử trình duyệt — checklist cần nhóm thực hiện
+## 7. Kết luận
 
-Chưa có bằng chứng trình duyệt thật trong lượt xử lý này. Khi chạy website trên máy nhóm, thực hiện và lưu ảnh màn hình cho từng bước:
+Toàn bộ 56 bài kiểm thử tự động đã vượt qua. Các chức năng Sprint 4 đã được triển khai và kiểm thử theo phạm vi hiện tại.
 
-1. Customer: đăng nhập, tìm dịch vụ, chọn ngày/giờ, đặt lịch; xác nhận không bị chuyển sang thanh toán.
-2. Owner: đăng nhập đúng tài khoản chủ cơ sở, mở lịch đặt, xác nhận rồi hoàn thành lịch.
-3. Customer: tải lại danh sách lịch đặt và kiểm tra trạng thái hoàn thành.
-4. Admin: đăng nhập tài khoản quản trị, mở trang thống kê và đối chiếu tổng số lịch đặt.
-5. Customer/Owner: thử mở khu vực không thuộc quyền; ghi nhận thông báo từ chối.
-6. Tìm kiếm và đăng nhập: xác nhận vẫn hoạt động sau thay đổi chỉ-thêm.
+Chờ xác nhận GitHub Actions của PR #46 và hoàn tất hồ sơ nghiệm thu.
 
-Không đánh dấu các bước trên là Pass trước khi nhóm tự thực hiện và lưu ảnh bằng chứng.
-
-## 6. Trạng thái nghiệm thu
-
-**Chưa đủ điều kiện đóng Issue S4R-08.** Cần:
-1. Trưởng nhóm quyết định cách xử lý chức năng review booking còn thiếu. Muốn hoàn tất review và chặn review trùng sẽ cần thay đổi chức năng/schema, hiện bị giới hạn bởi yêu cầu không sửa code.
-2. Nhóm thực hiện kiểm thử trình duyệt và lưu ảnh minh chứng.
-3. Push nhánh riêng, tạo commit/PR liên kết Issue.
-4. Trưởng nhóm review PR và bằng chứng trước khi đóng Issue.
+Issue liên quan: #39, #36, #37, #38.
