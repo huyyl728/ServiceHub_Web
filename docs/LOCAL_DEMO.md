@@ -1,54 +1,59 @@
 # ServiceHub — Chế độ Local Demo
 
-## 1. Cấu hình môi trường
+## 1. Yêu cầu và khởi chạy nhanh
 
-Tạo file `.env` từ `.env.example`.
+Cần Python 3.10 trở lên và trình duyệt. Không cần cài thư viện, npm hay Docker.
 
-```dotenv
-SERVICEHUB_HOST=127.0.0.1
-SERVICEHUB_PORT=8000
-SERVICEHUB_ADMIN_EMAIL=admin@servicehub.local
-SERVICEHUB_ADMIN_PASSWORD=YOUR_PRIVATE_PASSWORD
-SERVICEHUB_LOCAL_DEMO=1
-```
+Clone repository và mở Terminal tại thư mục ServiceHub_Web.
 
-Thay mật khẩu mẫu bằng mật khẩu riêng có tối thiểu 16 ký tự.
-
-## 2. Khởi động dự án
+**macOS/Linux:**
 
 ```bash
-python3 server.py
+python3 scripts/start_demo.py
 ```
 
-Hệ thống khởi tạo:
+**Windows (PowerShell):**
 
-- 1 Admin cá nhân.
-- 3 Customer demo.
-- 3 Owner demo.
-- 3 cơ sở mẫu.
-- 6 dịch vụ mẫu.
+```powershell
+py -3 scripts/start_demo.py
+```
 
-Tất cả sử dụng chung database `servicehub.db`.
+Nếu không có lệnh `py` nhưng có `python`, dùng `python scripts/start_demo.py`.
 
-## 3. Thông tin đăng nhập
+Có thể dùng `./start-mac.command` trên macOS hoặc mở `start-windows.bat` trên Windows. Truy cập URL được in trong Terminal (mặc định http://127.0.0.1:8001). Ctrl+C để dừng.
 
-Tài khoản Admin được cấu hình trong `.env`.
+## 2. Dữ liệu và đăng nhập
 
-Thông tin đăng nhập của sáu tài khoản demo nằm trong `.local-demo/main-credentials.json`.
+Lần đầu script tự tạo .env với mật khẩu Admin ngẫu nhiên, gọi chính schema/migration và hàm seed demo của server.py để tạo database servicehub.db, 1 Admin, 3 Customer, 3 Owner, 3 cơ sở và 6 dịch vụ. Không cần chạy setup_admin.py.
 
-## 4. Kiểm thử tự động
+- Admin: thông tin cả email và mật khẩu nằm trong file .env.
+- Customer và Owner: thông tin đăng nhập nằm trong .local-demo/main-credentials.json.
+- Mở file trên máy cá nhân; không gửi mật khẩu lên chat hoặc commit các file này.
+- Khi khởi chạy lại, script dùng database và cấu hình demo hiện có, không đặt lại mật khẩu hay xóa lịch đặt/đánh giá.
+
+Mỗi clone mới có một database demo độc lập với mật khẩu riêng. Đây không phải đồng bộ database giữa nhiều máy; dữ liệu phát sinh trên một máy không tự xuất hiện trên máy khác.
+
+## 3. Xử lý lỗi
+
+- Cổng đang bận: dừng tiến trình ServiceHub cũ hoặc chạy `python3 scripts/start_demo.py --port 8002` (Windows: thay python3 bằng py -3).
+- Có .env cấu hình không phải demo, database không có dấu demo tích hợp, hoặc thiếu file cấu hình tương ứng: script dừng thay vì ghi đè dữ liệu. Giữ nguyên thư mục hiện tại và dùng một bản clone sạch; nếu có bản sao lưu demo thì khôi phục cả database lẫn cấu hình phù hợp.
+- Có biến SERVICEHUB_* ghi đè cấu hình: mở terminal local không có các biến ghi đè đó.
+- Chỉ khởi tạo/kiểm tra, không mở server: thêm `--setup-only`.
+- Nếu trước đây chạy `scripts/local_demo.py`, đó là demo độc lập cũ trong .local-demo/servicehub-demo.db. Script mới không di chuyển hoặc ghi đè database cũ.
+
+## 4. Kiểm thử
 
 ```bash
 python3 scripts/run_checks.py
 ```
 
-Bộ kiểm thử sử dụng database tạm thời, độc lập với database local.
+Bộ test tự kiểm tra trên bản sao mã nguồn trong thư mục tạm, không xóa database local.
 
 ## 5. Bảo mật và triển khai
 
-- Không commit mật khẩu, file `.env` hoặc database cá nhân.
-- Không triển khai database chứa tài khoản demo lên production.
-- Không đưa server demo ra Internet bằng proxy hoặc tunnel.
-- Production phải sử dụng database riêng và `SERVICEHUB_LOCAL_DEMO=0`.
-- Giữ `SERVICEHUB_LOCAL_DEMO=1` khi tiếp tục sử dụng database demo local.
-- Script `scripts/local_demo.py` là phương thức demo độc lập cũ; không cần chạy khi sử dụng chế độ tích hợp mới.
+- Demo chỉ chạy trên 127.0.0.1, không dùng proxy/tunnel công khai; cơ chế bảo vệ demo của server.py vẫn được áp dụng.
+- Không commit .env, .env.admin, .local-demo, database hoặc uploads riêng tư.
+- Trên Windows, quyền truy cập file phụ thuộc ACL hệ điều hành; giữ thư mục clone trong tài khoản cá nhân, không đặt trong thư mục dùng chung.
+- Production/Render tiếp tục dùng lệnh khởi động server.py, database riêng và SERVICEHUB_LOCAL_DEMO=0; không dùng script start_demo.py.
+
+Xem [cấu hình Admin riêng](ADMIN_SETUP.md) nếu cần khởi tạo tài khoản quản trị cho môi trường thường, không phải demo.
