@@ -35,8 +35,53 @@ def load_local_env(path):
             continue
         os.environ.setdefault(key, ' '.join(tokens) if tokens else '')
 
-# Running Python directly now loads .env automatically. Docker still passes its own
-# environment into the container, which takes priority over this local file.
+# Các biến nhận diện môi trường triển khai; dùng chung với kiểm tra demo.
+HOSTING_VARS = (
+    'RENDER', 'RENDER_SERVICE_ID', 'VERCEL', 'DYNO',
+    'WEBSITE_SITE_NAME', 'RAILWAY_ENVIRONMENT', 'FLY_APP_NAME',
+    'K_SERVICE', 'AWS_EXECUTION_ENV', 'KUBERNETES_SERVICE_HOST',
+)
+
+
+def bootstrap_clean_local():
+    """Tự cấu hình khi chạy trực tiếp server.py từ bản clone local sạch."""
+    env_path = ROOT / '.env'
+    db_path = ROOT / 'servicehub.db'
+    # Không thay đổi cấu hình, dữ liệu cũ hoặc môi trường đã được cấu hình.
+    if (env_path.exists() or env_path.is_symlink()
+            or (ROOT / '.env.admin').exists()
+            or (ROOT / '.local-demo').exists()
+            or db_path.exists() or db_path.is_symlink()
+            or any(db_path.with_name(db_path.name + suffix).exists()
+                   for suffix in ('-wal', '-shm', '-journal'))):
+        return
+    if (any(key.startswith('SERVICEHUB_') for key in os.environ)
+            or 'PORT' in os.environ
+            or any(os.environ.get(key) for key in HOSTING_VARS)):
+        return
+
+    # Mỗi bản clone có mật khẩu riêng; không in mật khẩu ra log.
+    password = secrets.token_urlsafe(24)
+    config = (
+        'SERVICEHUB_HOST=127.0.0.1\n'
+        'SERVICEHUB_PORT=8001\n'
+        'SERVICEHUB_LOCAL_DEMO=1\n'
+        'SERVICEHUB_ADMIN_EMAIL=admin@servicehub.local\n'
+        f'SERVICEHUB_ADMIN_PASSWORD={password}\n'
+    )
+    # O_EXCL bảo đảm không ghi đè file đã được tạo bởi tiến trình khác.
+    try:
+        fd = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return
+    with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+        stream.write(config)
+
+
+# Chỉ khởi tạo tự động khi chạy file chính, không làm khi import/kiểm thử.
+if __name__ == '__main__':
+    bootstrap_clean_local()
+# Docker/CI/CLI luôn được ưu tiên hơn cấu hình .env.
 load_local_env(ROOT / '.env')
 DB_PATH = Path(os.environ.get('SERVICEHUB_DB_PATH', str(ROOT / 'servicehub.db'))).expanduser().resolve()
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -134,24 +179,11 @@ def validate_demo_environment():
         'SERVICEHUB_ENV', ''
     ).strip().lower()
 
-    hosting_vars = (
-        'RENDER',
-        'RENDER_SERVICE_ID',
-        'VERCEL',
-        'DYNO',
-        'WEBSITE_SITE_NAME',
-        'RAILWAY_ENVIRONMENT',
-        'FLY_APP_NAME',
-        'K_SERVICE',
-        'AWS_EXECUTION_ENV',
-        'KUBERNETES_SERVICE_HOST'
-    )
-
     local_allowed = (
         HOST == '127.0.0.1'
         and DB_PATH == (ROOT / 'servicehub.db').resolve()
         and environment in ('', 'local', 'development', 'local-demo')
-        and not any(os.environ.get(x) for x in hosting_vars)
+        and not any(os.environ.get(x) for x in HOSTING_VARS)
     )
 
     if enabled and not local_allowed:
@@ -191,7 +223,7 @@ def validate_demo_environment():
         and DB_PATH == (
             ROOT / '.local-demo' / 'servicehub-demo.db'
         ).resolve()
-        and not any(os.environ.get(x) for x in hosting_vars)
+        and not any(os.environ.get(x) for x in HOSTING_VARS)
     )
 
     if (
@@ -1859,15 +1891,10 @@ def seed_local_demo():
     )
 
     # Không cho phép tạo demo khi triển khai public
-    hosting_vars = (
-        'RENDER', 'RENDER_SERVICE_ID', 'VERCEL',
-        'DYNO', 'WEBSITE_SITE_NAME'
-    )
-
     if (
         HOST != '127.0.0.1'
         or DB_PATH != (ROOT / 'servicehub.db').resolve()
-        or any(os.environ.get(x) for x in hosting_vars)
+        or any(os.environ.get(x) for x in HOSTING_VARS)
         or os.environ.get('SERVICEHUB_ENV', '').lower()
         in ('production', 'prod')
     ):
@@ -1996,9 +2023,37 @@ def seed_local_demo():
     logging.info('Đã tạo 6 tài khoản demo local.')
     logging.info('Thông tin đăng nhập: %s', credentials_path)
 if __name__=='__main__':
-    seed()
-    seed_local_demo()
+    import argparse
 
-    logging.info('ServiceHub running at http://%s:%s', HOST, PORT)
+    parser = argparse.ArgumentParser(description='Khởi chạy ServiceHub')
+    parser.add_argument('--port', type=int, default=PORT,
+                        help='Chọn cổng khác nếu cổng mặc định đang bận')
+    parser.add_argument('--setup-only', action='store_true',
+                        help='Chỉ khởi tạo dữ liệu, không mở server')
+    args = parser.parse_args()
+    if not 1 <= args.port <= 65535:
+        parser.error('Cổng phải từ 1 đến 65535.')
 
-    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
+    old_umask = os.umask(0o077) if os.environ.get('SERVICEHUB_LOCAL_DEMO') == '1' else None
+    try:
+        seed()
+        seed_local_demo()
+        if os.environ.get('SERVICEHUB_LOCAL_DEMO') == '1':
+            if os.name != 'nt':
+                DB_PATH.chmod(0o600)
+            logging.info('Admin demo: xem cấu hình .env trên máy cá nhân.')
+            logging.info('Customer/Owner: xem .local-demo/main-credentials.json.')
+        if not args.setup_only:
+            with ThreadingHTTPServer((HOST, args.port), Handler) as httpd:
+                logging.info('ServiceHub running at http://%s:%s', HOST, args.port)
+                httpd.serve_forever()
+    except KeyboardInterrupt:
+        logging.info('Đã dừng ServiceHub.')
+    except (RuntimeError, OSError, sqlite3.Error) as exc:
+        logging.error('Không thể khởi chạy ServiceHub: %s', exc)
+        if isinstance(exc, OSError) and exc.errno in (48, 98, 10048):
+            logging.error('Cổng đang bận. Dừng server cũ hoặc dùng --port 8002.')
+        raise SystemExit(1)
+    finally:
+        if old_umask is not None:
+            os.umask(old_umask)
