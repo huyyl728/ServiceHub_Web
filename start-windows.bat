@@ -3,9 +3,9 @@ setlocal
 cd /d "%~dp0"
 where py >nul 2>&1
 if not errorlevel 1 (
-    py -3 scripts\start_demo.py %*
+    py -3 server.py %*
 ) else (
-    python scripts\start_demo.py %*
+    python server.py %*
 )
 set "RESULT=%ERRORLEVEL%"
 if not "%RESULT%"=="0" pause
