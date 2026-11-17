@@ -30,7 +30,7 @@ Sau khi clone repository, mở Terminal trong thư mục dự án. Không cần 
 ```bash
 git clone https://github.com/huyyl728/ServiceHub_Web.git
 cd ServiceHub_Web
-python3 scripts/start_demo.py
+python3 server.py
 ```
 
 **Windows (PowerShell):**
@@ -38,7 +38,7 @@ python3 scripts/start_demo.py
 ```powershell
 git clone https://github.com/huyyl728/ServiceHub_Web.git
 cd ServiceHub_Web
-py -3 scripts/start_demo.py
+py -3 server.py
 ```
 
 Nếu đã clone trước đó, chỉ cần cập nhật mã nguồn và chạy lệnh Python tương ứng. Có thể dùng `python` thay `py -3` nếu Windows không có Python Launcher.
@@ -47,11 +47,11 @@ Mở địa chỉ được in khi server chạy (mặc định http://127.0.0.1:
 
 Trên macOS có thể chạy `./start-mac.command` (nếu cần: `chmod +x start-mac.command`); trên Windows mở `start-windows.bat`. Dừng bằng Ctrl+C. Nếu cổng bị chiếm, thêm `--port 8002`.
 
-Bản demo sử dụng database riêng từng thư mục; chạy lại giữ dữ liệu. Nếu đã có database thông thường hay cấu hình khác, script từ chối ghi đè; hãy giữ dữ liệu và clone sang thư mục mới để chạy demo. Xem [hướng dẫn Local Demo](docs/LOCAL_DEMO.md).
+Bản local sử dụng database riêng từng thư mục; chạy lại giữ dữ liệu. Tự tạo cấu hình demo chỉ khi thư mục sạch, chưa có .env, database hoặc biến SERVICEHUB_* ghi đè. Nếu đã có database thông thường hoặc .env, server giữ chế độ đã cấu hình; muốn tạo dữ liệu mẫu mới, hãy dùng một bản clone sạch. Xem [hướng dẫn Local Demo](docs/LOCAL_DEMO.md).
 
 ### Chạy thông thường (không tạo demo)
 
-Dùng `python3 server.py` (Windows: `py -3 server.py`) với cấu hình riêng. Để triển khai public, đặt `SERVICEHUB_LOCAL_DEMO=0`, sử dụng database không chứa dữ liệu demo; không sử dụng script khởi chạy demo.
+Vẫn dùng `python3 server.py` (Windows: `py -3 server.py`). Để chạy không có dữ liệu mẫu, tạo .env từ .env.example (mặc định SERVICEHUB_LOCAL_DEMO=0) trước lần chạy đầu. Để triển khai public, thiết lập môi trường production, SERVICEHUB_LOCAL_DEMO=0 và database riêng không chứa dữ liệu demo.
 
 ### Chạy bằng Docker (tùy chọn)
 
