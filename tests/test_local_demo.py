@@ -34,11 +34,6 @@ class LocalDemoTests(unittest.TestCase):
             self.root / 'scripts/local_demo.py'
         )
 
-        shutil.copy(
-            ROOT / 'scripts/start_demo.py',
-            self.root / 'scripts/start_demo.py'
-        )
-
         self.env = {
             k: v for k, v in os.environ.items()
             if not k.startswith('SERVICEHUB_')
@@ -231,7 +226,7 @@ class LocalDemoTests(unittest.TestCase):
         env['PYTHONIOENCODING'] = 'utf-8'
         env.update(extra_env or {})
         return subprocess.run(
-            [sys.executable, 'scripts/start_demo.py', '--setup-only'],
+            [sys.executable, 'server.py', '--setup-only'],
             cwd=self.root, env=env, capture_output=True, text=True,
             encoding='utf-8', errors='replace', timeout=30
         )
@@ -258,31 +253,35 @@ class LocalDemoTests(unittest.TestCase):
             'SELECT id, email, password_hash FROM users ORDER BY id'
         ))
 
-    def test_launcher_rejects_hosting_without_writing(self):
+    def test_launcher_production_does_not_seed_demo(self):
         result = self.run_launcher({'SERVICEHUB_ENV': 'production'})
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.root / '.env').exists())
-        self.assertFalse((self.root / 'servicehub.db').exists())
+        self.assertFalse((self.root / '.local-demo').exists())
+        self.assertEqual(self.query('SELECT COUNT(*) FROM users'), [(0,)])
+        self.assertEqual(self.query('SELECT COUNT(*) FROM businesses'), [(0,)])
 
     def test_launcher_preserves_non_demo_database(self):
         db = self.root / 'servicehub.db'
         with closing(sqlite3.connect(db)) as conn, conn:
             conn.execute('CREATE TABLE existing_data (name TEXT)')
             conn.execute("INSERT INTO existing_data VALUES ('Dữ liệu cần giữ')")
-        before = db.read_bytes()
         result = self.run_launcher()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(before, db.read_bytes())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.query('SELECT name FROM existing_data'), [('Dữ liệu cần giữ',)])
+        self.assertEqual(self.query('SELECT COUNT(*) FROM users'), [(0,)])
         self.assertFalse((self.root / '.env').exists())
+        self.assertFalse((self.root / '.local-demo').exists())
 
     def test_launcher_does_not_overwrite_existing_config(self):
         env_path = self.root / '.env'
         env_path.write_text('SERVICEHUB_LOCAL_DEMO=0\n', encoding='utf-8')
         before = env_path.read_bytes()
         result = self.run_launcher()
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(before, env_path.read_bytes())
-        self.assertFalse((self.root / 'servicehub.db').exists())
+        self.assertEqual(self.query('SELECT COUNT(*) FROM users'), [(0,)])
+        self.assertFalse((self.root / '.local-demo').exists())
 
 
     def test_launcher_starts_real_site(self):
@@ -297,7 +296,7 @@ class LocalDemoTests(unittest.TestCase):
             port = sock.getsockname()[1]
         base = f'http://127.0.0.1:{port}'
         process = subprocess.Popen(
-            [sys.executable, 'scripts/start_demo.py', '--port', str(port)],
+            [sys.executable, 'server.py', '--port', str(port)],
             cwd=self.root, env=env, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
