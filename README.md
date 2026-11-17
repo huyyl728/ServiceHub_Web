@@ -43,11 +43,11 @@ py -3 server.py
 
 Nếu đã clone trước đó, chỉ cần cập nhật mã nguồn và chạy lệnh Python tương ứng. Có thể dùng `python` thay `py -3` nếu Windows không có Python Launcher.
 
-Mở địa chỉ được in khi server chạy (mặc định http://127.0.0.1:8001). Lần đầu tự tạo cấu hình, database và 7 tài khoản demo (1 Admin, 3 Customer, 3 Owner), 3 cơ sở và 6 dịch vụ. Thông tin đăng nhập Admin trong `.env`, thông tin Customer/Owner trong `.local-demo/main-credentials.json`. Không đưa các file này lên GitHub.
+Mở địa chỉ được in khi server chạy (mặc định http://127.0.0.1:8001). Lần đầu tự tạo cấu hình, database và 7 tài khoản demo (1 Admin, 3 Customer, 3 Owner), 3 cơ sở và 6 dịch vụ. Admin mẫu cố định cho mọi bản clone local sạch: `admin@servicehub.local` / `ServiceHub-Local-2026!` (thông tin mẫu công khai, không dùng trên production). Thông tin Customer/Owner trong `.local-demo/main-credentials.json`. Không đưa các file cấu hình cá nhân lên GitHub.
 
 Trên macOS có thể chạy `./start-mac.command` (nếu cần: `chmod +x start-mac.command`); trên Windows mở `start-windows.bat`. Dừng bằng Ctrl+C. Nếu cổng bị chiếm, thêm `--port 8002`.
 
-Bản local sử dụng database riêng từng thư mục; chạy lại giữ dữ liệu. Tự tạo cấu hình demo chỉ khi thư mục sạch, chưa có .env, database hoặc biến SERVICEHUB_* ghi đè. Nếu đã có database thông thường hoặc .env, server giữ chế độ đã cấu hình; muốn tạo dữ liệu mẫu mới, hãy dùng một bản clone sạch. Xem [hướng dẫn Local Demo](docs/LOCAL_DEMO.md).
+Bản local sử dụng database riêng từng thư mục; chạy lại giữ dữ liệu. Tự tạo cấu hình demo chỉ khi thư mục sạch, chưa có .env, database hoặc biến SERVICEHUB_* ghi đè. Nếu đã có database thông thường hoặc .env, server giữ chế độ đã cấu hình; muốn tạo dữ liệu mẫu mới, hãy dùng một bản clone sạch. Bản demo cũ đã tự sinh mật khẩu riêng có thể đổi hai biến Admin trong .env một lần theo hướng dẫn bên dưới, không cần xóa database. Xem [hướng dẫn Local Demo](docs/LOCAL_DEMO.md).
 
 ### Chạy thông thường (không tạo demo)
 
@@ -65,9 +65,9 @@ Sau đó mở <http://127.0.0.1:8000>. Compose lưu database và ảnh tải lê
 
 ## 3. Tài khoản và quyền quản trị
 
-Khách hàng đăng ký bằng email của mình; chủ cơ sở gửi hồ sơ xét duyệt. Các nút đăng nhập demo và tài khoản mặc định công khai đã được loại bỏ.
+Khách hàng đăng ký bằng email của mình; chủ cơ sở gửi hồ sơ xét duyệt. Các nút đăng nhập demo đã được loại bỏ. Tài khoản mẫu cố định chỉ được phép trong demo tích hợp trên localhost, không dùng ở môi trường thường hoặc production.
 
-Admin riêng được cấu hình qua `SERVICEHUB_ADMIN_EMAIL` và `SERVICEHUB_ADMIN_PASSWORD`. Chạy `python3 scripts/setup_admin.py --email admin@servicehub.local` để tạo cấu hình bí mật và xem [hướng dẫn admin trên local/Render](docs/ADMIN_SETUP.md). Không commit mật khẩu, `.env` hoặc `.env.admin`.
+Admin riêng (ngoài chế độ demo) được cấu hình qua `SERVICEHUB_ADMIN_EMAIL` và `SERVICEHUB_ADMIN_PASSWORD`. Chạy `python3 scripts/setup_admin.py --email admin@servicehub.local` để tạo cấu hình bí mật và xem [hướng dẫn admin trên local/Render](docs/ADMIN_SETUP.md). Không commit mật khẩu, `.env` hoặc `.env.admin`.
 
 ## 4. Chức năng hiện có
 

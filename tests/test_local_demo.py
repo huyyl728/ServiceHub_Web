@@ -15,6 +15,9 @@ from pathlib import Path
 from contextlib import closing
 
 ROOT = Path(__file__).resolve().parents[1]
+# Giá trị mẫu cố định theo hợp đồng chạy local, không phải mật khẩu production.
+DEFAULT_EMAIL = 'admin@servicehub.local'
+DEFAULT_PASSWORD = 'ServiceHub-Local-2026!'
 
 
 class LocalDemoTests(unittest.TestCase):
@@ -243,6 +246,9 @@ class LocalDemoTests(unittest.TestCase):
         self.assertTrue(creds_path.is_file())
         before = self.query('SELECT id, email, password_hash FROM users ORDER BY id')
         config = env_path.read_bytes()
+        settings = dict(line.split('=', 1) for line in config.decode('utf-8').splitlines())
+        self.assertEqual(settings['SERVICEHUB_ADMIN_EMAIL'], DEFAULT_EMAIL)
+        self.assertEqual(settings['SERVICEHUB_ADMIN_PASSWORD'], DEFAULT_PASSWORD)
         credentials = creds_path.read_bytes()
         second = self.run_launcher()
         self.assertEqual(second.returncode, 0, second.stderr)
@@ -252,6 +258,59 @@ class LocalDemoTests(unittest.TestCase):
         self.assertTrue(before == self.query(
             'SELECT id, email, password_hash FROM users ORDER BY id'
         ))
+
+    def test_launcher_fixed_admin_rejected_outside_demo(self):
+        for config in (
+            {'SERVICEHUB_ENV': 'production', 'SERVICEHUB_LOCAL_DEMO': '0'},
+            {'SERVICEHUB_LOCAL_DEMO': '0'},
+            {'SERVICEHUB_LOCAL_DEMO': '1', 'SERVICEHUB_HOST': '0.0.0.0'},
+            {'SERVICEHUB_LOCAL_DEMO': '1', 'RENDER': 'true'},
+        ):
+            with self.subTest(config=config):
+                result = self.run_launcher({
+                    'SERVICEHUB_ADMIN_EMAIL': DEFAULT_EMAIL,
+                    'SERVICEHUB_ADMIN_PASSWORD': DEFAULT_PASSWORD,
+                    **config
+                })
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('Admin mặc định', result.stderr)
+                self.assertFalse((self.root / 'servicehub.db').exists())
+
+    def test_launcher_fixed_admin_marker_protects_partially_seeded_database(self):
+        result = self.run_launcher()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        db = self.root / 'servicehub.db'
+        # Giả lập trường hợp Admin đã được tạo nhưng seed dữ liệu mẫu chưa hoàn tất.
+        with closing(sqlite3.connect(db)) as conn, conn:
+            conn.execute("DELETE FROM app_settings WHERE key='main_local_demo_v1'")
+        self.assertEqual(self.query(
+            "SELECT value FROM app_settings WHERE key='fixed_local_admin_v1'"
+        ), [('done',)])
+        before = db.read_bytes()
+        result = self.run_launcher({
+            'SERVICEHUB_ENV': 'production', 'SERVICEHUB_LOCAL_DEMO': '0',
+            'SERVICEHUB_ADMIN_EMAIL': '', 'SERVICEHUB_ADMIN_PASSWORD': ''
+        })
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Database chứa dữ liệu demo', result.stderr)
+        self.assertEqual(before, db.read_bytes())
+
+    def test_launcher_existing_private_admin_preserved(self):
+        password = secrets.token_urlsafe(24)
+        env_path = self.root / '.env'
+        env_path.write_text(
+            'SERVICEHUB_LOCAL_DEMO=1\nSERVICEHUB_HOST=127.0.0.1\n'
+            f'SERVICEHUB_ADMIN_EMAIL={DEFAULT_EMAIL}\nSERVICEHUB_ADMIN_PASSWORD={password}\n',
+            encoding='utf-8'
+        )
+        config = env_path.read_bytes()
+        first = self.run_launcher()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        before = self.query('SELECT id, email, password_hash FROM users ORDER BY id')
+        second = self.run_launcher()
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(config, env_path.read_bytes())
+        self.assertEqual(before, self.query('SELECT id, email, password_hash FROM users ORDER BY id'))
 
     def test_launcher_production_does_not_seed_demo(self):
         result = self.run_launcher({'SERVICEHUB_ENV': 'production'})
@@ -291,64 +350,66 @@ class LocalDemoTests(unittest.TestCase):
         env = {k: v for k, v in self.env.items()
                if not k.startswith('SERVICEHUB_')}
         env['PYTHONIOENCODING'] = 'utf-8'
-        with socket.socket() as sock:
-            sock.bind(('127.0.0.1', 0))
-            port = sock.getsockname()[1]
-        base = f'http://127.0.0.1:{port}'
-        process = subprocess.Popen(
-            [sys.executable, 'server.py', '--port', str(port)],
-            cwd=self.root, env=env, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        try:
-            for _ in range(100):
-                if process.poll() is not None:
-                    self.fail('Script khởi chạy website kết thúc bất thường.')
-                try:
-                    with urllib.request.urlopen(base + '/api/health', timeout=1) as response:
-                        if response.status == 200:
-                            break
-                except OSError:
-                    time.sleep(0.1)
-            else:
-                self.fail('Website demo không khởi động.')
-            with urllib.request.urlopen(base + '/', timeout=5) as response:
-                self.assertEqual(response.status, 200)
-                self.assertIn(b'ServiceHub', response.read())
-            with urllib.request.urlopen(base + '/api/services', timeout=5) as response:
-                self.assertEqual(len(json.load(response)['data']), 6)
-
-            # Đăng nhập bằng chính mật khẩu ngẫu nhiên vừa tạo cho bản clone.
-            settings = dict(line.split('=', 1) for line in
-                            (self.root / '.env').read_text(encoding='utf-8').splitlines())
-            accounts = json.loads(
-                (self.root / '.local-demo/main-credentials.json').read_text(encoding='utf-8')
-            )['users']
-            accounts.append({
-                'email': settings['SERVICEHUB_ADMIN_EMAIL'],
-                'password': settings['SERVICEHUB_ADMIN_PASSWORD']
-            })
-            self.assertEqual(len(accounts), 7)
-            for account in accounts:
-                request = urllib.request.Request(
-                    base + '/api/auth/login',
-                    data=json.dumps({
-                        'email': account['email'],
-                        'password': account['password']
-                    }).encode('utf-8'),
-                    headers={'Content-Type': 'application/json'},
-                    method='POST'
+        # Khởi động, đăng nhập đủ 7 tài khoản, dừng rồi chạy lại và đăng nhập lại.
+        for attempt in range(2):
+            with self.subTest(attempt=attempt):
+                with socket.socket() as sock:
+                    sock.bind(('127.0.0.1', 0))
+                    port = sock.getsockname()[1]
+                base = f'http://127.0.0.1:{port}'
+                process = subprocess.Popen(
+                    [sys.executable, 'server.py', '--port', str(port)],
+                    cwd=self.root, env=env, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
                 )
-                with urllib.request.urlopen(request, timeout=5) as response:
-                    self.assertEqual(response.status, 200)
-                    self.assertTrue(json.load(response)['success'])
-        finally:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
+                try:
+                    for _ in range(100):
+                        if process.poll() is not None:
+                            self.fail('Script khởi chạy website kết thúc bất thường.')
+                        try:
+                            with urllib.request.urlopen(base + '/api/health', timeout=1) as response:
+                                if response.status == 200:
+                                    break
+                        except OSError:
+                            time.sleep(0.1)
+                    else:
+                        self.fail('Website demo không khởi động.')
+                    with urllib.request.urlopen(base + '/', timeout=5) as response:
+                        self.assertEqual(response.status, 200)
+                        self.assertIn(b'ServiceHub', response.read())
+                    with urllib.request.urlopen(base + '/api/services', timeout=5) as response:
+                        self.assertEqual(len(json.load(response)['data']), 6)
+
+                    # Đăng nhập bằng tài khoản Admin cố định và 6 tài khoản mẫu vừa tạo.
+                    settings = dict(line.split('=', 1) for line in
+                                    (self.root / '.env').read_text(encoding='utf-8').splitlines())
+                    accounts = json.loads(
+                        (self.root / '.local-demo/main-credentials.json').read_text(encoding='utf-8')
+                    )['users']
+                    self.assertEqual(settings['SERVICEHUB_ADMIN_EMAIL'], DEFAULT_EMAIL)
+                    self.assertEqual(settings['SERVICEHUB_ADMIN_PASSWORD'], DEFAULT_PASSWORD)
+                    accounts.append({'email': DEFAULT_EMAIL, 'password': DEFAULT_PASSWORD})
+                    self.assertEqual(len(accounts), 7)
+                    for account in accounts:
+                        request = urllib.request.Request(
+                            base + '/api/auth/login',
+                            data=json.dumps({
+                                'email': account['email'],
+                                'password': account['password']
+                            }).encode('utf-8'),
+                            headers={'Content-Type': 'application/json'},
+                            method='POST'
+                        )
+                        with urllib.request.urlopen(request, timeout=5) as response:
+                            self.assertEqual(response.status, 200)
+                            self.assertTrue(json.load(response)['success'])
+                finally:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
 
 if __name__ == '__main__':
     unittest.main()

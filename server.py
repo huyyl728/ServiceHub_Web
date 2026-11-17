@@ -43,6 +43,13 @@ HOSTING_VARS = (
 )
 
 
+# Thông tin mẫu công khai CHỈ dành cho demo tích hợp trên localhost.
+# Không sử dụng mật khẩu này cho bất kỳ môi trường triển khai nào.
+LOCAL_DEMO_ADMIN_EMAIL = 'admin@servicehub.local'
+LOCAL_DEMO_ADMIN_PASSWORD = 'ServiceHub-Local-2026!'
+FIXED_LOCAL_ADMIN_MARKER = 'fixed_local_admin_v1'
+
+
 def bootstrap_clean_local():
     """Tự cấu hình khi chạy trực tiếp server.py từ bản clone local sạch."""
     env_path = ROOT / '.env'
@@ -60,14 +67,13 @@ def bootstrap_clean_local():
             or any(os.environ.get(key) for key in HOSTING_VARS)):
         return
 
-    # Mỗi bản clone có mật khẩu riêng; không in mật khẩu ra log.
-    password = secrets.token_urlsafe(24)
+    # Các bản clone sạch dùng cùng tài khoản mẫu; không ghi mật khẩu ra log.
     config = (
         'SERVICEHUB_HOST=127.0.0.1\n'
         'SERVICEHUB_PORT=8001\n'
         'SERVICEHUB_LOCAL_DEMO=1\n'
-        'SERVICEHUB_ADMIN_EMAIL=admin@servicehub.local\n'
-        f'SERVICEHUB_ADMIN_PASSWORD={password}\n'
+        f'SERVICEHUB_ADMIN_EMAIL={LOCAL_DEMO_ADMIN_EMAIL}\n'
+        f'SERVICEHUB_ADMIN_PASSWORD={LOCAL_DEMO_ADMIN_PASSWORD}\n'
     )
     # O_EXCL bảo đảm không ghi đè file đã được tạo bởi tiến trình khác.
     try:
@@ -135,8 +141,32 @@ def notify(conn, user_id, title, message):
 
 
 
+def local_demo_allowed():
+    """Chỉ cho phép cơ sở dữ liệu demo tích hợp trên localhost."""
+    return (
+        HOST == '127.0.0.1'
+        and DB_PATH == (ROOT / 'servicehub.db').resolve()
+        and os.environ.get('SERVICEHUB_ENV', '').strip().lower()
+        in ('', 'local', 'development', 'local-demo')
+        and not any(os.environ.get(x) for x in HOSTING_VARS)
+    )
+
+
+def validate_fixed_local_admin():
+    """Không cho phép mật khẩu mẫu công khai dùng ngoài demo local."""
+    if ADMIN_PASSWORD == LOCAL_DEMO_ADMIN_PASSWORD and not (
+        ADMIN_EMAIL == LOCAL_DEMO_ADMIN_EMAIL
+        and os.environ.get('SERVICEHUB_LOCAL_DEMO') == '1'
+        and local_demo_allowed()
+    ):
+        raise RuntimeError(
+            'Tài khoản Admin mặc định chỉ được phép dùng trong demo local.'
+        )
+
+
 def configure_admin():
-    """Retire public demo logins once and provision the privately configured admin."""
+    """Khởi tạo Admin theo cấu hình; mật khẩu mẫu chỉ dùng trên localhost."""
+    validate_fixed_local_admin()
     if bool(ADMIN_EMAIL) != bool(ADMIN_PASSWORD):
         raise RuntimeError('Set both SERVICEHUB_ADMIN_EMAIL and SERVICEHUB_ADMIN_PASSWORD.')
     if ADMIN_EMAIL and (not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', ADMIN_EMAIL)
@@ -169,8 +199,13 @@ def configure_admin():
                 uid=c.execute('INSERT INTO users(name,email,password_hash,is_admin) VALUES(?,?,?,1)',
                               ('Quản trị ServiceHub',ADMIN_EMAIL,hash_password(ADMIN_PASSWORD))).lastrowid
                 audit(c,None,'admin_account_created','user',uid)
+            if ADMIN_PASSWORD == LOCAL_DEMO_ADMIN_PASSWORD:
+                # Đánh dấu trong cùng giao dịch tạo/cập nhật Admin, kể cả khi seed demo sau đó thất bại.
+                c.execute('INSERT OR IGNORE INTO app_settings(key,value) VALUES(?,?)',
+                          (FIXED_LOCAL_ADMIN_MARKER, 'done'))
 
 def validate_demo_environment():
+    validate_fixed_local_admin()
     from contextlib import closing
 
     enabled = os.environ.get('SERVICEHUB_LOCAL_DEMO') == '1'
@@ -179,12 +214,7 @@ def validate_demo_environment():
         'SERVICEHUB_ENV', ''
     ).strip().lower()
 
-    local_allowed = (
-        HOST == '127.0.0.1'
-        and DB_PATH == (ROOT / 'servicehub.db').resolve()
-        and environment in ('', 'local', 'development', 'local-demo')
-        and not any(os.environ.get(x) for x in HOSTING_VARS)
-    )
+    local_allowed = local_demo_allowed()
 
     if enabled and not local_allowed:
         raise RuntimeError(
@@ -208,10 +238,11 @@ def validate_demo_environment():
         if has_settings:
             markers = {
         row[0] for row in c.execute(
-            'SELECT key FROM app_settings WHERE key IN (?,?)',
+            'SELECT key FROM app_settings WHERE key IN (?,?,?)',
             (
                 'main_local_demo_v1',
-                'local_demo_booking_only_v1'
+                'local_demo_booking_only_v1',
+                FIXED_LOCAL_ADMIN_MARKER
             )
         )
     }
@@ -227,7 +258,7 @@ def validate_demo_environment():
     )
 
     if (
-        ('main_local_demo_v1' in markers
+        (({'main_local_demo_v1', FIXED_LOCAL_ADMIN_MARKER} & markers)
          and not (enabled and local_allowed))
         or
         ('local_demo_booking_only_v1' in markers
