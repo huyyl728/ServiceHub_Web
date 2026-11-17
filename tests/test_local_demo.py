@@ -30,6 +30,11 @@ class LocalDemoTests(unittest.TestCase):
             self.root / 'scripts/local_demo.py'
         )
 
+        shutil.copy(
+            ROOT / 'scripts/start_demo.py',
+            self.root / 'scripts/start_demo.py'
+        )
+
         self.env = {
             k: v for k, v in os.environ.items()
             if not k.startswith('SERVICEHUB_')
@@ -215,5 +220,64 @@ class LocalDemoTests(unittest.TestCase):
             result.stderr
         )
         self.assertEqual(before, copied_db.read_bytes())
+
+    def run_launcher(self, extra_env=None):
+        env = {k: v for k, v in self.env.items()
+               if not k.startswith('SERVICEHUB_')}
+        env.update(extra_env or {})
+        return subprocess.run(
+            [sys.executable, 'scripts/start_demo.py', '--setup-only'],
+            cwd=self.root, env=env, capture_output=True, text=True,
+            encoding='utf-8', errors='replace', timeout=30
+        )
+
+    def test_launcher_clean_clone_and_restart(self):
+        first = self.run_launcher()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(self.query('SELECT COUNT(*) FROM users'), [(7,)])
+        self.assertEqual(self.query('SELECT COUNT(*) FROM businesses'), [(3,)])
+        self.assertEqual(self.query('SELECT COUNT(*) FROM services'), [(6,)])
+        env_path = self.root / '.env'
+        creds_path = self.root / '.local-demo/main-credentials.json'
+        self.assertTrue(env_path.is_file())
+        self.assertTrue(creds_path.is_file())
+        before = self.query('SELECT id, email, password_hash FROM users ORDER BY id')
+        config = env_path.read_bytes()
+        credentials = creds_path.read_bytes()
+        second = self.run_launcher()
+        self.assertEqual(second.returncode, 0, second.stderr)
+        # Kiểm tra không tạo lại hoặc đổi mật khẩu khi chạy lần hai.
+        self.assertTrue(config == env_path.read_bytes())
+        self.assertTrue(credentials == creds_path.read_bytes())
+        self.assertTrue(before == self.query(
+            'SELECT id, email, password_hash FROM users ORDER BY id'
+        ))
+
+    def test_launcher_rejects_hosting_without_writing(self):
+        result = self.run_launcher({'SERVICEHUB_ENV': 'production'})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.root / '.env').exists())
+        self.assertFalse((self.root / 'servicehub.db').exists())
+
+    def test_launcher_preserves_non_demo_database(self):
+        db = self.root / 'servicehub.db'
+        with closing(sqlite3.connect(db)) as conn, conn:
+            conn.execute('CREATE TABLE existing_data (name TEXT)')
+            conn.execute("INSERT INTO existing_data VALUES ('Dữ liệu cần giữ')")
+        before = db.read_bytes()
+        result = self.run_launcher()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(before, db.read_bytes())
+        self.assertFalse((self.root / '.env').exists())
+
+    def test_launcher_does_not_overwrite_existing_config(self):
+        env_path = self.root / '.env'
+        env_path.write_text('SERVICEHUB_LOCAL_DEMO=0\n', encoding='utf-8')
+        before = env_path.read_bytes()
+        result = self.run_launcher()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(before, env_path.read_bytes())
+        self.assertFalse((self.root / 'servicehub.db').exists())
+
 if __name__ == '__main__':
     unittest.main()
