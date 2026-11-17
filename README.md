@@ -21,27 +21,37 @@ Xem hướng dẫn, các file liên quan và lệnh test trong **[DISCOVERY_GUID
 - Trình duyệt hiện đại.
 - Không cần Node.js, npm hoặc thư viện Python bên ngoài.
 
-## 2. Chạy trên Mac
+## 2. Clone và chạy bản demo tổng hợp
 
-Cách nhanh: mở Terminal trong thư mục `ServiceHub-6-Sprints` và chạy `./start-mac.command` (nếu macOS hỏi quyền, chạy `chmod +x start-mac.command` trước). Hoặc làm thủ công theo các bước bên dưới.
+Sau khi clone repository, mở Terminal trong thư mục dự án. Không cần cài thêm thư viện.
 
-1. Giải nén file ZIP ServiceHub bạn vừa tải về.
-2. Mở Terminal và chuyển vào thư mục vừa giải nén:
+**macOS/Linux:**
 
-   ```bash
-   cd ServiceHub-6-Sprints
-   ```
+```bash
+git clone https://github.com/huyyl728/ServiceHub_Web.git
+cd ServiceHub_Web
+python3 scripts/start_demo.py
+```
 
-3. Khởi động server:
+**Windows (PowerShell):**
 
-   ```bash
-   python3 server.py
-   ```
+```powershell
+git clone https://github.com/huyyl728/ServiceHub_Web.git
+cd ServiceHub_Web
+py -3 scripts/start_demo.py
+```
 
-4. Mở địa chỉ được in khi server chạy (mặc định <http://127.0.0.1:8000>; nếu dùng `.env.example` thiết lập cổng 8001 thì mở <http://127.0.0.1:8001>).
-5. Dừng server bằng `Control + C`.
+Nếu đã clone trước đó, chỉ cần cập nhật mã nguồn và chạy lệnh Python tương ứng. Có thể dùng `python` thay `py -3` nếu Windows không có Python Launcher.
 
-Lần chạy đầu tiên tự tạo `servicehub.db` và dữ liệu demo. Muốn reset dữ liệu demo, dừng server, xóa `servicehub.db`, rồi chạy lại `python3 server.py`.
+Mở địa chỉ được in khi server chạy (mặc định http://127.0.0.1:8001). Lần đầu tự tạo cấu hình, database và 7 tài khoản demo (1 Admin, 3 Customer, 3 Owner), 3 cơ sở và 6 dịch vụ. Thông tin đăng nhập Admin trong `.env`, thông tin Customer/Owner trong `.local-demo/main-credentials.json`. Không đưa các file này lên GitHub.
+
+Trên macOS có thể chạy `./start-mac.command` (nếu cần: `chmod +x start-mac.command`); trên Windows mở `start-windows.bat`. Dừng bằng Ctrl+C. Nếu cổng bị chiếm, thêm `--port 8002`.
+
+Bản demo sử dụng database riêng từng thư mục; chạy lại giữ dữ liệu. Nếu đã có database thông thường hay cấu hình khác, script từ chối ghi đè; hãy giữ dữ liệu và clone sang thư mục mới để chạy demo. Xem [hướng dẫn Local Demo](docs/LOCAL_DEMO.md).
+
+### Chạy thông thường (không tạo demo)
+
+Dùng `python3 server.py` (Windows: `py -3 server.py`) với cấu hình riêng. Để triển khai public, đặt `SERVICEHUB_LOCAL_DEMO=0`, sử dụng database không chứa dữ liệu demo; không sử dụng script khởi chạy demo.
 
 ### Chạy bằng Docker (tùy chọn)
 
