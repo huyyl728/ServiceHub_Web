@@ -1,4 +1,8 @@
 import os
+import json
+import socket
+import time
+import urllib.request
 import sys
 import shutil
 import sqlite3
@@ -224,6 +228,7 @@ class LocalDemoTests(unittest.TestCase):
     def run_launcher(self, extra_env=None):
         env = {k: v for k, v in self.env.items()
                if not k.startswith('SERVICEHUB_')}
+        env['PYTHONIOENCODING'] = 'utf-8'
         env.update(extra_env or {})
         return subprocess.run(
             [sys.executable, 'scripts/start_demo.py', '--setup-only'],
@@ -278,6 +283,73 @@ class LocalDemoTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(before, env_path.read_bytes())
         self.assertFalse((self.root / 'servicehub.db').exists())
+
+
+    def test_launcher_starts_real_site(self):
+        # Chạy chính website tích hợp, không dùng server mô phỏng.
+        (self.root / 'static').mkdir(exist_ok=True)
+        shutil.copy(ROOT / 'static/index.html', self.root / 'static/index.html')
+        env = {k: v for k, v in self.env.items()
+               if not k.startswith('SERVICEHUB_')}
+        env['PYTHONIOENCODING'] = 'utf-8'
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1', 0))
+            port = sock.getsockname()[1]
+        base = f'http://127.0.0.1:{port}'
+        process = subprocess.Popen(
+            [sys.executable, 'scripts/start_demo.py', '--port', str(port)],
+            cwd=self.root, env=env, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        try:
+            for _ in range(100):
+                if process.poll() is not None:
+                    self.fail('Script khởi chạy website kết thúc bất thường.')
+                try:
+                    with urllib.request.urlopen(base + '/api/health', timeout=1) as response:
+                        if response.status == 200:
+                            break
+                except OSError:
+                    time.sleep(0.1)
+            else:
+                self.fail('Website demo không khởi động.')
+            with urllib.request.urlopen(base + '/', timeout=5) as response:
+                self.assertEqual(response.status, 200)
+                self.assertIn(b'ServiceHub', response.read())
+            with urllib.request.urlopen(base + '/api/services', timeout=5) as response:
+                self.assertEqual(len(json.load(response)['data']), 6)
+
+            # Đăng nhập bằng chính mật khẩu ngẫu nhiên vừa tạo cho bản clone.
+            settings = dict(line.split('=', 1) for line in
+                            (self.root / '.env').read_text(encoding='utf-8').splitlines())
+            accounts = json.loads(
+                (self.root / '.local-demo/main-credentials.json').read_text(encoding='utf-8')
+            )['users']
+            accounts.append({
+                'email': settings['SERVICEHUB_ADMIN_EMAIL'],
+                'password': settings['SERVICEHUB_ADMIN_PASSWORD']
+            })
+            self.assertEqual(len(accounts), 7)
+            for account in accounts:
+                request = urllib.request.Request(
+                    base + '/api/auth/login',
+                    data=json.dumps({
+                        'email': account['email'],
+                        'password': account['password']
+                    }).encode('utf-8'),
+                    headers={'Content-Type': 'application/json'},
+                    method='POST'
+                )
+                with urllib.request.urlopen(request, timeout=5) as response:
+                    self.assertEqual(response.status, 200)
+                    self.assertTrue(json.load(response)['success'])
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
 
 if __name__ == '__main__':
     unittest.main()
