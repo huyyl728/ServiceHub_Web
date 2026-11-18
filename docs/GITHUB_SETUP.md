@@ -6,7 +6,7 @@ Bộ này được tạo cho tài khoản GitHub **`huyyl728`** với repository
 
 - Mã nguồn ServiceHub Python, SQLite, HTML/CSS/JS, bản QR/VietQR demo, Docker/CI và các tệp test.
 - `docs/GITHUB_BACKLOG.json`: kế hoạch 6 Milestone và 30 Issue, mỗi Sprint 5 Issue.
-- `docs/SPRINTS_1_TO_6.md`: bảng Sprint, phân loại `code-present` và `planned`.
+- `docs/SPRINT_1.md` đến `docs/SPRINT_6.md`: hồ sơ từng Sprint với Issue, trạng thái, bằng chứng và phần việc chưa nghiệm thu. Đây là các tài liệu cập nhật; phần còn lại của hướng dẫn này lưu lại quy trình xuất bản GitHub lịch sử.
 - `scripts/publish_github.py`: công cụ xuất bản, tự tạo repo Private, commit/push code, tạo nhãn, Milestone, Issue; có thể chạy lại để tránh trùng.
 - Không có file `.env`, cơ sở dữ liệu cá nhân hay ảnh người dùng tải lên trong gói ZIP này.
 
