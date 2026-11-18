@@ -1,6 +1,6 @@
 # Tài khoản admin riêng
 
-Website không còn nút đăng nhập demo và không tự tạo khách hàng/chủ cơ sở/admin dùng mật khẩu công khai. Người dùng đăng ký bình thường; chủ cơ sở gửi hồ sơ để admin xét duyệt.
+Website không còn nút đăng nhập demo. Tài khoản mẫu chỉ tự tạo khi chạy bản clone sạch trên localhost trong chế độ demo tích hợp; môi trường thường và production không được dùng mật khẩu Admin mẫu công khai. Người dùng đăng ký bình thường; chủ cơ sở gửi hồ sơ để admin xét duyệt.
 
 ## Tạo cấu hình trên máy
 
@@ -32,7 +32,7 @@ Nếu thiếu cả hai biến, server vẫn phục vụ đăng ký/đăng nhập
 
 Trong lần nâng cấp đầu tiên, ba tài khoản `admin@servicehub.local`, `huy@servicehub.local`, `owner@servicehub.local` bị khóa đăng nhập, bỏ quyền admin cũ và thu hồi phiên. Dữ liệu ví, lịch sử giao dịch, lịch đặt và cơ sở vẫn được giữ lại.
 
-Nếu chọn `admin@servicehub.local` làm admin riêng, server tái sử dụng bản ghi admin cũ bằng mật khẩu bí mật mới. Mật khẩu demo cũ không có hiệu lực. Các tài khoản người dùng khác không bị khóa.
+Nếu chọn `admin@servicehub.local` làm admin riêng, server tái sử dụng bản ghi admin cũ bằng mật khẩu bí mật mới. Mật khẩu mẫu chỉ được phép trong bản demo localhost; môi trường thường và production phải dùng mật khẩu riêng. Các tài khoản người dùng khác không bị khóa.
 
 Chế độ kiểm thử sử dụng `tests/fixture_server.py` với database trong thư mục tạm. Server thông thường không gọi seed tài khoản mẫu. Chạy toàn bộ kiểm tra bằng:
 

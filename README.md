@@ -21,27 +21,37 @@ Xem hướng dẫn, các file liên quan và lệnh test trong **[DISCOVERY_GUID
 - Trình duyệt hiện đại.
 - Không cần Node.js, npm hoặc thư viện Python bên ngoài.
 
-## 2. Chạy trên Mac
+## 2. Clone và chạy bản demo tổng hợp
 
-Cách nhanh: mở Terminal trong thư mục `ServiceHub-6-Sprints` và chạy `./start-mac.command` (nếu macOS hỏi quyền, chạy `chmod +x start-mac.command` trước). Hoặc làm thủ công theo các bước bên dưới.
+Sau khi clone repository, mở Terminal trong thư mục dự án. Không cần cài thêm thư viện.
 
-1. Giải nén file ZIP ServiceHub bạn vừa tải về.
-2. Mở Terminal và chuyển vào thư mục vừa giải nén:
+**macOS/Linux:**
 
-   ```bash
-   cd ServiceHub-6-Sprints
-   ```
+```bash
+git clone https://github.com/huyyl728/ServiceHub_Web.git
+cd ServiceHub_Web
+python3 server.py
+```
 
-3. Khởi động server:
+**Windows (PowerShell):**
 
-   ```bash
-   python3 server.py
-   ```
+```powershell
+git clone https://github.com/huyyl728/ServiceHub_Web.git
+cd ServiceHub_Web
+py -3 server.py
+```
 
-4. Mở địa chỉ được in khi server chạy (mặc định <http://127.0.0.1:8000>; nếu dùng `.env.example` thiết lập cổng 8001 thì mở <http://127.0.0.1:8001>).
-5. Dừng server bằng `Control + C`.
+Nếu đã clone trước đó, chỉ cần cập nhật mã nguồn và chạy lệnh Python tương ứng. Có thể dùng `python` thay `py -3` nếu Windows không có Python Launcher.
 
-Lần chạy đầu tiên tự tạo `servicehub.db` và dữ liệu demo. Muốn reset dữ liệu demo, dừng server, xóa `servicehub.db`, rồi chạy lại `python3 server.py`.
+Mở địa chỉ được in khi server chạy (mặc định http://127.0.0.1:8001). Lần đầu tự tạo cấu hình, database và 7 tài khoản demo (1 Admin, 3 Customer, 3 Owner), 3 cơ sở và 6 dịch vụ. Admin mẫu cố định cho mọi bản clone local sạch: `admin@servicehub.local` / `ServiceHub-Local-2026!` (thông tin mẫu công khai, không dùng trên production). Thông tin Customer/Owner trong `.local-demo/main-credentials.json`. Không đưa các file cấu hình cá nhân lên GitHub.
+
+Trên macOS có thể chạy `./start-mac.command` (nếu cần: `chmod +x start-mac.command`); trên Windows mở `start-windows.bat`. Dừng bằng Ctrl+C. Nếu cổng bị chiếm, thêm `--port 8002`.
+
+Bản local sử dụng database riêng từng thư mục; chạy lại giữ dữ liệu. Tự tạo cấu hình demo chỉ khi thư mục sạch, chưa có .env, database hoặc biến SERVICEHUB_* ghi đè. Nếu đã có database thông thường hoặc .env, server giữ chế độ đã cấu hình; muốn tạo dữ liệu mẫu mới, hãy dùng một bản clone sạch. Bản demo cũ đã tự sinh mật khẩu riêng có thể đổi hai biến Admin trong .env một lần theo hướng dẫn bên dưới, không cần xóa database. Xem [hướng dẫn Local Demo](docs/LOCAL_DEMO.md).
+
+### Chạy thông thường (không tạo demo)
+
+Vẫn dùng `python3 server.py` (Windows: `py -3 server.py`). Để chạy không có dữ liệu mẫu, tạo .env từ .env.example (mặc định SERVICEHUB_LOCAL_DEMO=0) trước lần chạy đầu. Để triển khai public, thiết lập môi trường production, SERVICEHUB_LOCAL_DEMO=0 và database riêng không chứa dữ liệu demo.
 
 ### Chạy bằng Docker (tùy chọn)
 
@@ -55,9 +65,9 @@ Sau đó mở <http://127.0.0.1:8000>. Compose lưu database và ảnh tải lê
 
 ## 3. Tài khoản và quyền quản trị
 
-Khách hàng đăng ký bằng email của mình; chủ cơ sở gửi hồ sơ xét duyệt. Các nút đăng nhập demo và tài khoản mặc định công khai đã được loại bỏ.
+Khách hàng đăng ký bằng email của mình; chủ cơ sở gửi hồ sơ xét duyệt. Các nút đăng nhập demo đã được loại bỏ. Tài khoản mẫu cố định chỉ được phép trong demo tích hợp trên localhost, không dùng ở môi trường thường hoặc production.
 
-Admin riêng được cấu hình qua `SERVICEHUB_ADMIN_EMAIL` và `SERVICEHUB_ADMIN_PASSWORD`. Chạy `python3 scripts/setup_admin.py --email admin@servicehub.local` để tạo cấu hình bí mật và xem [hướng dẫn admin trên local/Render](docs/ADMIN_SETUP.md). Không commit mật khẩu, `.env` hoặc `.env.admin`.
+Admin riêng (ngoài chế độ demo) được cấu hình qua `SERVICEHUB_ADMIN_EMAIL` và `SERVICEHUB_ADMIN_PASSWORD`. Chạy `python3 scripts/setup_admin.py --email admin@servicehub.local` để tạo cấu hình bí mật và xem [hướng dẫn admin trên local/Render](docs/ADMIN_SETUP.md). Không commit mật khẩu, `.env` hoặc `.env.admin`.
 
 ## 4. Chức năng hiện có
 

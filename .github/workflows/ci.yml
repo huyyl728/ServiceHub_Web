@@ -16,3 +16,16 @@ jobs:
           node-version: '22'
       - name: Test Python API and JavaScript recommendations
         run: python3 scripts/run_checks.py
+  demo-cross-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Kiểm thử khởi chạy demo từ bản clone sạch
+        run: python -m unittest discover -s tests -p test_local_demo.py -k launcher -v

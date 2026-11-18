@@ -11,4 +11,4 @@ if sys.version_info < (3, 10):
     print('Cần Python 3.10 trở lên. Phiên bản hiện tại:', sys.version.split()[0])
     raise SystemExit(1)
 PY
-exec python3 server.py
+exec python3 server.py "$@"
