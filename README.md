@@ -5,9 +5,14 @@ Bản MVP chạy độc lập của ServiceHub: frontend HTML/CSS/JavaScript, ba
 
 ## Quản lý dự án trên GitHub — 6 Sprint
 
-- [Kế hoạch 6 Sprint](docs/SPRINTS_1_TO_6.md)
+- [Sprint 1 — Khởi tạo dự án và giao diện](docs/SPRINT_1.md)
+- [Sprint 2 — Tài khoản, phân quyền và cơ sở](docs/SPRINT_2.md)
+- [Sprint 3 — Tìm kiếm, dịch vụ và đặt lịch](docs/SPRINT_3.md)
+- [Sprint 4 — Đánh giá và quản trị nâng cao](docs/SPRINT_4.md)
+- [Sprint 5 — Kiểm thử, bảo mật và UX](docs/SPRINT_5.md)
+- [Sprint 6 — Nghiệm thu và bàn giao](docs/SPRINT_6.md)
 
-**Trạng thái:** mã nguồn hiện tại được phát triển đến Sprint 4; Sprint 5–6 là phần công việc tiếp theo cần nghiệm thu. Không coi test backend đạt đồng nghĩa toàn bộ UI đã qua test.
+**Trạng thái đối chiếu 19/11/2026:** Sprint 1–3 đã đóng 5/5 Issue mỗi Sprint; Sprint 4 điều chỉnh đã đóng 8/8 Issue (#32–#39); Sprint 5 đã đóng 1/5 Issue (#22); Sprint 6 còn mở 5/5 Issue. Mã nguồn được kiểm thử tự động trên `main`, nhưng vẫn cần nghiệm thu thủ công và không phải production-ready. Xem từng file Sprint bên trên.
 
 ## Điểm mới — Bộ gợi ý theo sở thích
 
@@ -188,7 +193,7 @@ Bản này kế thừa Sprint 1–3 và tính năng tư vấn ba câu hỏi. Cá
 - **Kiểm thử Sprint 4:** thêm `tests/test_sprint4.py` với database SQLite tạm, script `scripts/run_checks.py`, CI GitHub Actions `.github/workflows/ci.yml`.
 - **Khắc phục:** đường dẫn `/api/businesses/managed` không còn bị route chi tiết cơ sở công khai chặn nhầm.
 
-**Chạy tất cả kiểm thử mà không thay đổi DB của bạn:** `python3 scripts/run_checks.py`. Xem [`SPRINT4_REPORT.md`](SPRINT4_REPORT.md) để đọc bảng chức năng, kết quả, giới hạn và phân công cho nhóm bốn người.
+**Chạy tất cả kiểm thử mà không thay đổi DB của bạn:** `python3 scripts/run_checks.py`. Xem [tài liệu Sprint 4 điều chỉnh](docs/SPRINT_4.md) để đọc chức năng, kết quả, giới hạn và bằng chứng liên quan.
 
 > Đây vẫn là MVP chạy local/LAN với dữ liệu demo, **không phải production**. Ví chỉ mô phỏng, không tích hợp ngân hàng. Cần rà soát an toàn trước khi đưa ra Internet. Không sử dụng tài khoản demo khi triển khai công khai.
 
