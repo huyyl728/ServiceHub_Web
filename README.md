@@ -248,3 +248,28 @@ Không đưa file .env hoặc thông tin bí mật lên GitHub.
 
 Tổng kết: 9/9 testcase thủ công thành công.
 Docker Compose chưa được kiểm thử thực tế.
+
+
+## Hội viên, voucher và phản hồi của chủ cơ sở (PR #57)
+
+- **Hội viên theo từng cơ sở:** Customer xem tên chương trình, quyền lợi do Owner công bố, điểm được cộng sau lịch hoàn thành, tùy chọn tự xác nhận lịch và voucher chào mừng. Owner quản lý thông tin chương trình, xem tổng hội viên; Admin xem số hội viên trên từng cơ sở và toàn hệ thống.
+- **Voucher chào mừng:** Khi Customer tham gia chương trình lần đầu, hệ thống cấp tối đa một voucher riêng cho cặp (tài khoản, chương trình), nếu Owner bật tỷ lệ ưu đãi. Owner được cấu hình giảm 0–50% và hạn sử dụng 1–365 ngày. Mặc định giảm 10% trong 30 ngày. Voucher chỉ dùng một lần ở cơ sở phát hành, không thể dùng ở cơ sở khác. Voucher được đánh dấu đã sử dụng khi đặt lịch thành công và được trả lại nếu lịch bị hủy; voucher đã hết hạn thì không thể tái sử dụng.
+- **Giá dịch vụ:** Voucher giảm trực tiếp số tiền ghi nhận trong booking, **không có giao dịch thanh toán**. Không cộng dồn nhiều voucher trên một lịch. Mã voucher chỉ hiển thị với người sở hữu đăng nhập; khi đặt lịch có thể chọn voucher đang còn hạn.
+- **Điểm hội viên:** Sau khi Owner chuyển lịch từ confirmed sang completed, hội viên tham gia chương trình còn hoạt động sẽ được cộng điểm một lần theo `floor(giá lịch sau ưu đãi / 1000) × điểm mỗi 1.000đ`. Phiên bản này ghi nhận/tổng hợp điểm, **chưa có đổi điểm thành quà, tiền hay phương thức thanh toán**.
+- **Phản hồi đánh giá:** Owner chỉ có thể trả lời hoặc cập nhật một phản hồi đối với review công khai thuộc đúng cơ sở của mình. Không sửa điểm sao/bình luận của Customer. Đánh giá bị Admin ẩn thì không hiển thị công khai kèm phản hồi.
+
+### API chính
+
+| Endpoint | Quyền | Mục đích |
+|---|---|---|
+| `GET /api/businesses/{id}` | Public | Đọc quyền lợi, điều kiện voucher của cơ sở |
+| `GET/PUT /api/owner/membership` | Owner | Xem số hội viên và cấu hình chương trình/voucher |
+| `GET /api/owner/members?business_id=...` | Owner | Danh sách hội viên cơ sở |
+| `POST /api/memberships/{id}/join` | Customer đăng nhập | Tham gia chương trình và nhận voucher một lần |
+| `GET /api/vouchers/me` | Người đăng nhập | Xem voucher riêng, hạn dùng và lịch đã sử dụng |
+| `POST /api/bookings` | Customer đăng nhập | Có thể truyền `voucher_id` để giảm giá lịch |
+| `GET /api/owner/reviews?business_id=...` | Owner | Đọc đánh giá của cơ sở mình |
+| `POST /api/owner/reviews/{id}/reply` | Owner | Gửi/cập nhật phản hồi đánh giá |
+| `GET /api/admin/stats`, `GET /api/admin/businesses` | Admin | Tổng hợp hội viên toàn hệ thống và từng cơ sở |
+
+Kiểm thử: `python3 scripts/run_checks.py` dùng SQLite tạm. Trước khi merge, kiểm tra thêm luồng Customer–Owner–Admin trên trình duyệt và kiểm chứng backup database thật.
