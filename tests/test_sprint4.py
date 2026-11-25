@@ -212,10 +212,30 @@ class Sprint4IntegrationTests(unittest.TestCase):
         voucher=vouchers[0]
         self.assertEqual(voucher['discount_percent'],20)
         self.assertIsNone(voucher['used_booking_id'])
+        other_vouchers=self.request('/api/vouchers/me',token=self.owner)[1]['data']
+        self.assertFalse(any(x['code']==voucher['code'] for x in other_vouchers))
         services=self.request('/api/services')[1]['data']
         service=next(s for s in services if s['business_id']==business_id and
                      s['name']=='Sân bóng 5 người')
         date=(datetime.now()+timedelta(days=75)).strftime('%Y-%m-%d')
+        wrong_service=next(s for s in services if s['business_id']!=business_id
+                          and s['price']>0)
+        self.assertEqual(self.request('/api/bookings','POST',{
+            'service_id':wrong_service['id'],'date':date,
+            'start_time':'13:00','voucher_id':voucher['id']
+        },customer_token)[0],409)
+        # Mã hết hạn không được dùng; khôi phục hạn dùng trên DB thử nghiệm.
+        with sqlite3.connect(Path(self.temp.name)/'isolated.db') as c:
+            c.execute('UPDATE membership_vouchers SET expires_at=0 WHERE id=?',(voucher['id'],))
+            c.commit()
+        self.assertEqual(self.request('/api/bookings','POST',{
+            'service_id':service['id'],'date':date,
+            'start_time':'13:00','voucher_id':voucher['id']
+        },customer_token)[0],409)
+        with sqlite3.connect(Path(self.temp.name)/'isolated.db') as c:
+            c.execute('UPDATE membership_vouchers SET expires_at=? WHERE id=?',
+                      (voucher['expires_at'],voucher['id']))
+            c.commit()
         def book(hour,voucher_id):
             return self.request('/api/bookings','POST',{
                 'service_id':service['id'],'date':date,'start_time':hour,
@@ -251,6 +271,17 @@ class Sprint4IntegrationTests(unittest.TestCase):
         reply_route=f'/api/owner/reviews/{review_id}/reply'
         self.assertEqual(self.request(reply_route,'POST',
                                       {'reply':'Cảm ơn bạn đã ghé!'},customer_token)[0],403)
+        second_owner_token=uuid.uuid4().hex
+        with sqlite3.connect(Path(self.temp.name)/'isolated.db') as c:
+            second_owner_id=c.execute('INSERT INTO users(name,email,password_hash) VALUES(?,?,?)',
+                        ('Chủ cơ sở khác','other-owner-'+uuid.uuid4().hex+'@example.test',
+                         'fixture-hash-unused')).lastrowid
+            c.execute('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)',
+                      (hashlib.sha256(second_owner_token.encode()).hexdigest(),
+                       second_owner_id,expiry))
+            c.commit()
+        self.assertEqual(self.request(reply_route,'POST',
+                                      {'reply':'Không phải cơ sở của tôi'},second_owner_token)[0],403)
         self.assertEqual(self.request(reply_route,'POST',
                                       {'reply':'Cảm ơn bạn đã ghé!'},self.owner)[0],200)
         owner_reviews=self.request(f'/api/owner/reviews?business_id={business_id}',
