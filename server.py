@@ -298,6 +298,13 @@ def seed():
             c.execute("ALTER TABLE membership_programs ADD COLUMN benefits TEXT NOT NULL DEFAULT ''")
         if 'auto_approve_bookings' not in membership_columns:
             c.execute("ALTER TABLE membership_programs ADD COLUMN auto_approve_bookings INTEGER NOT NULL DEFAULT 0")
+        if 'welcome_discount_percent' not in membership_columns:
+            c.execute("ALTER TABLE membership_programs ADD COLUMN welcome_discount_percent INTEGER NOT NULL DEFAULT 10 CHECK(welcome_discount_percent BETWEEN 0 AND 50)")
+        if 'voucher_valid_days' not in membership_columns:
+            c.execute("ALTER TABLE membership_programs ADD COLUMN voucher_valid_days INTEGER NOT NULL DEFAULT 30 CHECK(voucher_valid_days BETWEEN 1 AND 365)")
+        booking_columns = {row['name'] for row in c.execute('PRAGMA table_info(bookings)')}
+        if 'membership_points_awarded' not in booking_columns:
+            c.execute("ALTER TABLE bookings ADD COLUMN membership_points_awarded INTEGER NOT NULL DEFAULT 0 CHECK(membership_points_awarded IN (0,1))")
         if 'login_enabled' not in user_columns:
             c.execute('ALTER TABLE users ADD COLUMN login_enabled INTEGER NOT NULL DEFAULT 1')
         if 'email_verified' not in user_columns:
@@ -545,9 +552,14 @@ class Handler(BaseHTTPRequestHandler):
                             r.comment,
                             r.created_at,
                             r.updated_at,
-                            u.name AS customer_name
+                            u.name AS customer_name,
+                            rr.reply AS owner_reply,
+                            rr.updated_at AS owner_replied_at,
+                            owner.name AS owner_reply_name
                         FROM reviews r
                         JOIN users u ON u.id = r.user_id
+                        LEFT JOIN owner_review_replies rr ON rr.review_id = r.id
+                        LEFT JOIN users owner ON owner.id = rr.owner_id
                         WHERE r.{field} = ?
                           AND r.is_visible = 1
                         ORDER BY r.created_at DESC, r.id DESC
@@ -575,7 +587,7 @@ class Handler(BaseHTTPRequestHandler):
                 business=c.execute("SELECT id,name,category,address,phone,description,banner_path FROM businesses WHERE id=? AND status='active'",(bid,)).fetchone()
                 if not business: raise APIError(404,'BUSINESS_NOT_FOUND','Không tìm thấy cơ sở này.')
                 services=[dict(r) for r in c.execute('SELECT id,business_id,name,description,price,duration_minutes,category,image_path FROM services WHERE business_id=? AND active=1 ORDER BY id DESC',(bid,))]
-                programs=[dict(r) for r in c.execute('SELECT id,business_id,name,description,points_per_currency FROM membership_programs WHERE business_id=? AND active=1 ORDER BY id DESC',(bid,))]
+                programs=[dict(r) for r in c.execute('SELECT id,business_id,name,description,benefits,points_per_currency,auto_approve_bookings,welcome_discount_percent,voucher_valid_days FROM membership_programs WHERE business_id=? AND active=1 ORDER BY id DESC',(bid,))]
             return self.send_json(200,{'success':True,'data':{'business':dict(business),'services':services,'memberships':programs}})
         if method=='GET' and p=='/api/services':
             q=parse_qs(urlparse(self.path).query); search=q.get('q',[''])[0].strip(); category=q.get('category',[''])[0].strip()
@@ -1038,15 +1050,40 @@ class Handler(BaseHTTPRequestHandler):
                 if not row:
                     cur=c.execute('INSERT INTO membership_programs(business_id,name,description,benefits,auto_approve_bookings) VALUES(?,?,?,?,0)',(bid,'Hội viên thân thiết','Chương trình hội viên của cơ sở','Ưu đãi dành riêng cho hội viên.'))
                     c.commit(); row=c.execute('SELECT * FROM membership_programs WHERE id=?',(cur.lastrowid,)).fetchone()
-            return self.send_json(200,{'success':True,'data':dict(row)})
+                membership = dict(row)
+                membership['member_count'] = c.execute(
+                    '''SELECT COUNT(DISTINCT um.user_id) FROM user_memberships um
+                       JOIN membership_programs mp ON mp.id=um.program_id
+                       WHERE mp.business_id=?''', (bid,)
+                ).fetchone()[0]
+                membership['vouchers_issued'] = c.execute(
+                    'SELECT COUNT(*) FROM membership_vouchers WHERE business_id=?', (bid,)
+                ).fetchone()[0]
+            return self.send_json(200,{'success':True,'data':membership})
         if method=='PUT' and p=='/api/owner/membership':
             d=self.body(); bid=int(d.get('business_id',0)); self.owner_business(user,bid)
             name=str(d.get('name','')).strip()[:120]; description=str(d.get('description','')).strip()[:1000]; benefits=str(d.get('benefits','')).strip()[:2000]; points=max(0,min(1000,int(d.get('points_per_currency',1)))); auto=1 if d.get('auto_approve_bookings') else 0; active=1 if d.get('active',True) else 0
             if not name: raise APIError(400,'VALIDATION_ERROR','Tên chương trình hội viên không được để trống.')
+            try:
+                discount = int(d.get('welcome_discount_percent', 10))
+                valid_days = int(d.get('voucher_valid_days', 30))
+            except (TypeError, ValueError):
+                raise APIError(400,'INVALID_VOUCHER_CONFIG','Cấu hình voucher phải là số nguyên.')
+            if not 0 <= discount <= 50 or not 1 <= valid_days <= 365:
+                raise APIError(400,'INVALID_VOUCHER_CONFIG','Giảm giá 0–50% và hạn dùng 1–365 ngày.')
             with connect() as c:
                 row=c.execute('SELECT id FROM membership_programs WHERE business_id=? ORDER BY id DESC LIMIT 1',(bid,)).fetchone()
-                if row: c.execute('UPDATE membership_programs SET name=?,description=?,benefits=?,points_per_currency=?,auto_approve_bookings=?,active=? WHERE id=?',(name,description,benefits,points,auto,active,row['id']))
-                else: c.execute('INSERT INTO membership_programs(business_id,name,description,benefits,points_per_currency,auto_approve_bookings,active) VALUES(?,?,?,?,?,?,?)',(bid,name,description,benefits,points,auto,active))
+                if row:
+                    c.execute('''UPDATE membership_programs
+                        SET name=?,description=?,benefits=?,points_per_currency=?,
+                            auto_approve_bookings=?,active=?,welcome_discount_percent=?,voucher_valid_days=?
+                        WHERE id=?''',(name,description,benefits,points,auto,active,discount,valid_days,row['id']))
+                else:
+                    c.execute('''INSERT INTO membership_programs(
+                        business_id,name,description,benefits,points_per_currency,
+                        auto_approve_bookings,active,welcome_discount_percent,voucher_valid_days)
+                        VALUES(?,?,?,?,?,?,?,?,?)''',
+                        (bid,name,description,benefits,points,auto,active,discount,valid_days))
                 audit(c,user['id'],'membership_program_updated','business',bid,'auto_approve_bookings='+str(auto)); c.commit()
             return self.send_json(200,{'success':True,'message':'Đã lưu chương trình hội viên của cơ sở.'})
         if method=='GET' and p=='/api/owner/members':
@@ -1056,6 +1093,50 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as c:
                 rows=[dict(r) for r in c.execute('SELECT u.name member_name,um.points,um.joined_at,mp.name program_name FROM user_memberships um JOIN membership_programs mp ON mp.id=um.program_id JOIN users u ON u.id=um.user_id WHERE mp.business_id=? ORDER BY um.joined_at DESC,um.id DESC LIMIT 100',(bid,))]
             return self.send_json(200,{'success':True,'data':rows})
+        if method=='GET' and p=='/api/owner/reviews':
+            try:
+                bid=int(parse_qs(urlparse(self.path).query).get('business_id',['0'])[0])
+            except (ValueError, TypeError):
+                raise APIError(400,'INVALID_BUSINESS_ID','Mã cơ sở không hợp lệ.')
+            self.owner_business(user,bid)
+            with connect() as c:
+                rows=[dict(x) for x in c.execute(
+                    '''SELECT r.id,r.rating,r.comment,r.is_visible,r.created_at,
+                        u.name AS customer_name,s.name AS service_name,
+                        rr.reply AS owner_reply,rr.updated_at AS owner_replied_at
+                       FROM reviews r JOIN users u ON u.id=r.user_id
+                       JOIN services s ON s.id=r.service_id
+                       LEFT JOIN owner_review_replies rr ON rr.review_id=r.id
+                       WHERE r.business_id=?
+                       ORDER BY r.created_at DESC,r.id DESC LIMIT 100''',(bid,))]
+            return self.send_json(200,{'success':True,'data':rows})
+        if method=='POST' and re.fullmatch(r'/api/owner/reviews/[0-9]{1,19}/reply',p):
+            review_id=int(p.split('/')[4])
+            if not 1 <= review_id <= 2**63-1:
+                raise APIError(400,'INVALID_REVIEW_ID','Mã đánh giá không hợp lệ.')
+            d=self.body()
+            reply=d.get('reply','') if isinstance(d,dict) else ''
+            if not isinstance(reply,str) or not 1 <= len(reply.strip()) <= 1000:
+                raise APIError(400,'INVALID_REPLY','Phản hồi phải có từ 1 đến 1000 ký tự.')
+            reply=reply.strip()
+            with connect() as c:
+                c.execute('BEGIN IMMEDIATE')
+                review=c.execute('SELECT id,user_id,business_id,is_visible FROM reviews WHERE id=?',
+                                 (review_id,)).fetchone()
+                if not review: raise APIError(404,'REVIEW_NOT_FOUND','Không tìm thấy đánh giá.')
+                self.owner_business(user,review['business_id'])
+                if not review['is_visible']:
+                    raise APIError(409,'REVIEW_HIDDEN','Không thể trả lời đánh giá đã bị ẩn.')
+                c.execute('''INSERT INTO owner_review_replies(review_id,owner_id,reply)
+                             VALUES(?,?,?)
+                             ON CONFLICT(review_id) DO UPDATE SET
+                               owner_id=excluded.owner_id,reply=excluded.reply,
+                               updated_at=CURRENT_TIMESTAMP''',(review_id,user['id'],reply))
+                audit(c,user['id'],'owner_review_replied','review',review_id)
+                notify(c,review['user_id'],'Phản hồi từ cơ sở',
+                       'Chủ cơ sở đã phản hồi đánh giá của bạn.')
+                c.commit()
+            return self.send_json(200,{'success':True,'message':'Đã lưu phản hồi của chủ cơ sở.'})
         if method=='GET' and p=='/api/owner/bookings':
             bid=int(parse_qs(urlparse(self.path).query).get('business_id',['0'])[0]); self.owner_business(user,bid)
             with connect() as c: rows=[dict(r) for r in c.execute('SELECT bk.*,s.name service_name,u.name customer_name,u.phone customer_phone FROM bookings bk JOIN services s ON s.id=bk.service_id JOIN users u ON u.id=bk.user_id WHERE bk.business_id=? ORDER BY bk.booking_date DESC,bk.start_time',(bid,))]
