@@ -1,3 +1,4 @@
+
 services:
   servicehub:
     build: .
@@ -9,10 +10,17 @@ services:
       SERVICEHUB_DB_PATH: /data/servicehub.db
       SERVICEHUB_ADMIN_EMAIL: ${SERVICEHUB_ADMIN_EMAIL:-}
       SERVICEHUB_ADMIN_PASSWORD: ${SERVICEHUB_ADMIN_PASSWORD:-}
+
+      # Cấu hình xác thực email OTP
+      SERVICEHUB_OTP_SECRET: ${SERVICEHUB_OTP_SECRET:-}
+      SERVICEHUB_SMTP_EMAIL: ${SERVICEHUB_SMTP_EMAIL:-}
+      SERVICEHUB_SMTP_PASSWORD: ${SERVICEHUB_SMTP_PASSWORD:-}
+
     volumes:
       - servicehub_data:/data
       - servicehub_uploads:/app/static/uploads
     restart: unless-stopped
+
 volumes:
   servicehub_data:
   servicehub_uploads:

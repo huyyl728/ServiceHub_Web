@@ -1099,6 +1099,62 @@
           </button>
           <p id="auth-message" class="form-message"></p>
         </form>
+
+        <!-- Giao diện xác thực email bằng OTP -->
+        <form id="otp-form" class="form-stack hidden">
+          <h2>Xác thực email</h2>
+
+          <p>
+            Vui lòng nhập mã OTP gồm 6 chữ số
+            được gửi đến email của bạn.
+          </p>
+
+          <p id="otp-email"></p>
+
+          <label>
+            Mã xác thực OTP
+            <input
+              id="otp-code"
+              name="code"
+              type="text"
+              inputmode="numeric"
+              maxlength="6"
+              minlength="6"
+              pattern="[0-9]{6}"
+              autocomplete="one-time-code"
+              placeholder="Nhập mã OTP"
+              required
+            />
+          </label>
+
+          <button
+            id="otp-submit"
+            class="btn btn-dark btn-block"
+            type="submit"
+          >
+            Xác thực tài khoản
+          </button>
+
+          <button
+            id="otp-resend"
+            class="btn btn-block"
+            type="button"
+          >
+            Gửi lại mã OTP
+          </button>
+
+          <button
+            id="otp-back"
+            class="btn btn-block"
+            type="button"
+          >
+            Quay lại đăng nhập
+          </button>
+
+          <p id="otp-message" class="form-message"></p>
+          <small>Mã OTP có hiệu lực trong 5 phút.</small>
+        </form>
+
       </div>
     </div>
     <div

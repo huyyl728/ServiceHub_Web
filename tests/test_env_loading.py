@@ -20,6 +20,7 @@ class LocalEnvLoadingTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         shutil.copyfile(SOURCE / 'server.py', self.root / 'server.py')
         shutil.copyfile(SOURCE / 'schema.sql', self.root / 'schema.sql')
+        shutil.copyfile(SOURCE / 'email_verification.py', self.root / 'email_verification.py')
         (self.root / '.env').write_text('SERVICEHUB_PORT=8001\nSERVICEHUB_HOST=127.0.0.1\n', encoding='utf-8')
 
     def tearDown(self):

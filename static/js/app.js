@@ -8,6 +8,7 @@
     services: [],
     businessId: null,
     authMode: "login",
+    pendingVerification: null,
     bookingService: null,
   };
   const discoveryState = {
@@ -62,6 +63,7 @@
     ({
       login: "Đăng nhập",
       logout: "Đăng xuất",
+      email_verified: "Xác thực email",
       profile_updated: "Cập nhật hồ sơ",
       business_application_submitted: "Gửi hồ sơ cơ sở",
       business_profile_updated: "Cập nhật thông tin cơ sở",
@@ -201,10 +203,14 @@
     document.body.style.overflow = "hidden";
   }
   function closeModals() {
+    if (!$("#auth-modal").classList.contains("hidden")) {
+      authMode("login");
+    }
     $$(".modal").forEach((m) => m.classList.add("hidden"));
     document.body.style.overflow = "";
   }
   function authMode(mode) {
+    resetOtpForm();
     state.authMode = mode;
     $("#auth-title").textContent =
       mode === "login" ? "Chào mừng trở lại" : "Tạo tài khoản ServiceHub";
@@ -220,26 +226,152 @@
     );
     setMessage($("#auth-message"), "");
   }
+  // Xác thực email: chỉ giữ thông tin chờ xác minh trong bộ nhớ.
+  let authUiVersion = 0;
+
+  function resetOtpForm() {
+    authUiVersion++;
+    if (state.pendingVerification) state.pendingVerification.password = "";
+    state.pendingVerification = null;
+    $("#otp-form").reset();
+    $("#otp-form").classList.add("hidden");
+    $("#auth-form").classList.remove("hidden");
+    $(".auth-tabs").classList.remove("hidden");
+    $("#auth-modal .modal-card > p.muted")?.classList.remove("hidden");
+    $("#auth-form input[name='password']").value = "";
+    $("#otp-email").textContent = "";
+    $("#auth-submit").disabled = false;
+    $("#otp-submit").disabled = false;
+    $("#otp-resend").disabled = false;
+    setMessage($("#otp-message"), "");
+  }
+
+  function showOtpForm(email, password, message, error = false) {
+    state.pendingVerification = { email, password, busy: false };
+    $("#auth-form").classList.add("hidden");
+    $(".auth-tabs").classList.add("hidden");
+    $("#auth-modal .modal-card > p.muted")?.classList.add("hidden");
+    $("#otp-form").classList.remove("hidden");
+    $("#auth-form input[name='password']").value = "";
+    $("#auth-title").textContent = "Xác thực email";
+    $("#otp-form h2")?.classList.add("hidden");
+    $("#otp-email").textContent = email;
+    $("#otp-code").value = "";
+    setMessage($("#otp-message"), message, error);
+    $("#otp-code").focus();
+  }
+
   async function submitAuth(event) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const payload = Object.fromEntries(form.entries());
+    const submit = $("#auth-submit");
+    if (submit.disabled || state.pendingVerification) return;
+    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    const mode = state.authMode;
+    const version = authUiVersion;
+    submit.disabled = true;
+    setMessage($("#auth-message"), "Đang xử lý...");
+
     try {
-      const path =
-        state.authMode === "login" ? "/api/auth/login" : "/api/auth/register";
+      const path = mode === "login" ? "/api/auth/login" : "/api/auth/register";
       const result = await API.post(path, payload);
+      if (version !== authUiVersion) return;
+
+      if (result.data?.requires_verification) {
+        showOtpForm(payload.email, payload.password,
+          result.message || "Mã OTP đã được gửi đến email của bạn.");
+        return;
+      }
+
+      if (!result.data?.token) {
+        throw new Error("Máy chủ không trả về phiên đăng nhập hợp lệ.");
+      }
       API.saveSession(result.data);
       await syncUser();
+      if (version !== authUiVersion) return;
+      if (!state.user) throw new Error("Không thể xác nhận phiên đăng nhập.");
       closeModals();
-      toast(
-        state.authMode === "login"
-          ? "Đăng nhập thành công."
-          : "Tạo tài khoản thành công.",
-      );
+      toast("Đăng nhập thành công.");
       showView("home");
     } catch (e) {
+      if (version !== authUiVersion) return;
+      if (e.code === "EMAIL_NOT_VERIFIED" ||
+          (mode === "register" && e.code === "EMAIL_SEND_FAILED")) {
+        showOtpForm(payload.email, payload.password, e.message,
+          e.code === "EMAIL_SEND_FAILED");
+        return;
+      }
       setMessage($("#auth-message"), e.message, true);
+    } finally {
+      payload.password = "";
+      if (version === authUiVersion) submit.disabled = false;
     }
+  }
+
+  function setOtpBusy(pending, busy) {
+    pending.busy = busy;
+    $("#otp-submit").disabled = busy;
+    $("#otp-resend").disabled = busy;
+  }
+
+  async function submitOtp(event) {
+    event.preventDefault();
+    const pending = state.pendingVerification;
+    if (!pending || pending.busy) return;
+    const code = $("#otp-code").value.trim();
+    if (!/^[0-9]{6}$/.test(code)) {
+      setMessage($("#otp-message"), "Mã OTP phải gồm 6 chữ số.", true);
+      return;
+    }
+    setOtpBusy(pending, true);
+    setMessage($("#otp-message"), "Đang xác thực...");
+    try {
+      const result = await API.post("/api/auth/verify-email", {
+        email: pending.email, password: pending.password, code,
+      });
+      if (state.pendingVerification !== pending) return;
+      const email = pending.email;
+      authMode("login");
+      $("#auth-form input[name='email']").value = email;
+      setMessage($("#auth-message"), result.message || "Xác thực email thành công. Vui lòng đăng nhập.");
+      $("#auth-form input[name='password']").focus();
+    } catch (e) {
+      if (state.pendingVerification === pending) {
+        setMessage($("#otp-message"), e.message, true);
+      }
+    } finally {
+      if (state.pendingVerification === pending) setOtpBusy(pending, false);
+      else pending.password = "";
+    }
+  }
+
+  async function resendOtp() {
+    const pending = state.pendingVerification;
+    if (!pending || pending.busy) return;
+    setOtpBusy(pending, true);
+    setMessage($("#otp-message"), "Đang gửi lại mã...");
+    try {
+      const result = await API.post("/api/auth/resend-code", {
+        email: pending.email, password: pending.password,
+      });
+      if (state.pendingVerification !== pending) return;
+      $("#otp-code").value = "";
+      setMessage($("#otp-message"), result.message || "Đã gửi mã OTP mới.");
+      $("#otp-code").focus();
+    } catch (e) {
+      if (state.pendingVerification === pending) {
+        setMessage($("#otp-message"), e.message, true);
+      }
+    } finally {
+      if (state.pendingVerification === pending) setOtpBusy(pending, false);
+      else pending.password = "";
+    }
+  }
+
+  function backToLogin() {
+    const email = state.pendingVerification?.email;
+    authMode("login");
+    if (email) $("#auth-form input[name='email']").value = email;
+    $("#auth-form input[name='password']").focus();
   }
   function serviceCard(s) {
     const icons = {
@@ -2491,6 +2623,9 @@
       markAllNotificationsRead,
     );
     $("#auth-form").addEventListener("submit", submitAuth);
+    $("#otp-form").addEventListener("submit", submitOtp);
+    $("#otp-resend").addEventListener("click", resendOtp);
+    $("#otp-back").addEventListener("click", backToLogin);
     $("#application-form").addEventListener("submit", submitApplication);
     $("#profile-form").addEventListener("submit", async (e) => {
       e.preventDefault();

@@ -202,3 +202,49 @@ Bản này kế thừa Sprint 1–3 và tính năng tư vấn ba câu hỏi. Cá
 - Chạy Python riêng bản Sprint 4: `SERVICEHUB_PORT=8001 python3 server.py` rồi mở `http://127.0.0.1:8001`.
 - Chạy bằng Docker trên cổng 8001: `SERVICEHUB_HOST_PORT=8001 docker compose up -d --build`. Bên trong container vẫn là cổng 8000.
 - Nếu chạy nhiều phiên bản, dùng **database riêng** cho bản mới, không trỏ nhầm vào file của bản cũ. Không xóa Docker volume khi muốn giữ dữ liệu.
+
+## Xác thực email bằng OTP
+
+### Chức năng
+- Gửi mã OTP gồm 6 chữ số qua Gmail SMTP.
+- Mã OTP có hiệu lực trong 5 phút.
+- Giới hạn 5 lần nhập sai trên mỗi mã OTP.
+- Cho phép gửi lại mã sau 60 giây.
+- Chặn đăng nhập khi chưa xác thực email.
+- Băm OTP bằng HMAC-SHA256 trước khi lưu.
+- Ghi nhật ký xác thực email vào Audit Log.
+- Tương thích với tài khoản cũ.
+
+### Cấu hình
+
+Bổ sung các biến sau vào file .env:
+
+    SERVICEHUB_OTP_SECRET=
+    SERVICEHUB_SMTP_EMAIL=
+    SERVICEHUB_SMTP_PASSWORD=
+
+Tạo khóa bảo mật OTP bằng lệnh:
+
+    python -c "import secrets; print(secrets.token_hex(32))"
+
+Sử dụng mật khẩu ứng dụng Gmail để gửi email.
+Không đưa file .env hoặc thông tin bí mật lên GitHub.
+
+### Khởi động hệ thống
+
+    python server.py
+
+### Kết quả kiểm thử thủ công
+
+- Đăng ký và nhận OTP: PASS
+- Hiển thị giao diện OTP: PASS
+- Nhập sai OTP: PASS
+- Gửi lại OTP: PASS
+- Xác thực email: PASS
+- Đăng nhập sau xác thực: PASS
+- Chặn đăng nhập khi chưa xác thực: PASS
+- Kiểm tra OTP hết hạn: PASS
+- Đăng nhập tài khoản cũ: PASS
+
+Tổng kết: 9/9 testcase thủ công thành công.
+Docker Compose chưa được kiểm thử thực tế.
