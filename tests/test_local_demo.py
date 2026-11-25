@@ -29,6 +29,7 @@ class LocalDemoTests(unittest.TestCase):
 
         shutil.copy(ROOT / 'server.py', self.root)
         shutil.copy(ROOT / 'schema.sql', self.root)
+        shutil.copy(ROOT / 'email_verification.py', self.root)
 
         (self.root / 'scripts').mkdir()
 
