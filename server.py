@@ -1146,11 +1146,32 @@ class Handler(BaseHTTPRequestHandler):
             if action not in ('confirm','complete','cancel'): raise APIError(404,'INVALID_ACTION','Thao tác không hợp lệ.')
             status={'confirm':'confirmed','complete':'completed','cancel':'cancelled'}[action]
             with connect() as c:
+                c.execute('BEGIN IMMEDIATE')
                 row=c.execute('SELECT * FROM bookings WHERE id=? AND business_id=?',(booking_id,bid)).fetchone()
                 if not row: raise APIError(404,'BOOKING_NOT_FOUND','Không tìm thấy lịch đặt.')
                 allowed={'confirm':['pending'],'complete':['confirmed'],'cancel':['pending','confirmed']}
                 if row['status'] not in allowed[action]: raise APIError(409,'INVALID_BOOKING_STATE','Không thể chuyển lịch đặt từ trạng thái hiện tại.')
-                c.execute('UPDATE bookings SET status=? WHERE id=?',(status,booking_id)); notify(c,row['user_id'],'Lịch đặt được cập nhật',f'Lịch đặt #{booking_id} hiện có trạng thái {status}.'); c.commit()
+                c.execute('UPDATE bookings SET status=? WHERE id=?',(status,booking_id))
+                if action=='cancel':
+                    c.execute('''UPDATE membership_vouchers SET used_booking_id=NULL,used_at=NULL
+                                 WHERE used_booking_id=?''',(booking_id,))
+                if action=='complete' and not row['membership_points_awarded']:
+                    membership=c.execute('''SELECT um.id,mp.points_per_currency
+                        FROM user_memberships um JOIN membership_programs mp ON mp.id=um.program_id
+                        WHERE um.user_id=? AND mp.business_id=? AND mp.active=1
+                        ORDER BY mp.id DESC LIMIT 1''',
+                        (row['user_id'],bid)).fetchone()
+                    if membership:
+                        points=(row['price']//1000)*membership['points_per_currency']
+                        c.execute('UPDATE user_memberships SET points=points+? WHERE id=?',
+                                  (points,membership['id']))
+                        c.execute('UPDATE bookings SET membership_points_awarded=1 WHERE id=?',(booking_id,))
+                        if points:
+                            notify(c,row['user_id'],'Điểm hội viên',
+                                   f'Bạn nhận được {points} điểm khi hoàn thành lịch #{booking_id}.')
+                notify(c,row['user_id'],'Lịch đặt được cập nhật',
+                       f'Lịch đặt #{booking_id} hiện có trạng thái {status}.')
+                c.commit()
             return self.send_json(200,{'success':True,'message':'Đã cập nhật lịch đặt.'})
                 # ==========================================
         # S4R-02: CREATE CUSTOMER REVIEW
@@ -1426,6 +1447,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200,{'success':True,'data':slots})
         if method=='POST' and p=='/api/bookings':
             d=self.body(); sid=int(d.get('service_id',0)); date=str(d.get('date','')); start=str(d.get('start_time',''))
+            try:
+                voucher_id=int(d.get('voucher_id') or 0)
+            except (ValueError,TypeError):
+                raise APIError(400,'INVALID_VOUCHER','Voucher không hợp lệ.')
+            if voucher_id<0: raise APIError(400,'INVALID_VOUCHER','Voucher không hợp lệ.')
             try: datetime.strptime(date,'%Y-%m-%d'); st=datetime.strptime(start,'%H:%M')
             except Exception: raise APIError(400,'INVALID_DATETIME','Ngày hoặc giờ không hợp lệ.')
             with connect() as c:
@@ -1439,7 +1465,23 @@ class Handler(BaseHTTPRequestHandler):
                 if overlap: raise APIError(409,'SLOT_TAKEN','Khung giờ vừa được người khác đặt. Hãy chọn giờ khác.')
                 auto_program=c.execute('SELECT mp.id FROM membership_programs mp JOIN user_memberships um ON um.program_id=mp.id AND um.user_id=? WHERE mp.business_id=? AND mp.active=1 AND mp.auto_approve_bookings=1 ORDER BY mp.id DESC LIMIT 1',(user['id'],svc['business_id'])).fetchone()
                 booking_status='confirmed' if auto_program else 'pending'
-                cur=c.execute('INSERT INTO bookings(user_id,service_id,business_id,booking_date,start_time,end_time,status,price) VALUES(?,?,?,?,?,?,?,?)',(user['id'],sid,svc['business_id'],date,start,end,booking_status,svc['price'])); bid=cur.lastrowid
+                discount_amount=0
+                voucher=None
+                if voucher_id:
+                    voucher=c.execute('''SELECT v.id,v.code,v.discount_percent
+                        FROM membership_vouchers v
+                        JOIN user_memberships um ON um.user_id=v.user_id AND um.program_id=v.program_id
+                        WHERE v.id=? AND v.user_id=? AND v.business_id=?
+                          AND v.used_booking_id IS NULL AND v.expires_at>?''',
+                        (voucher_id,user['id'],svc['business_id'],int(time.time()))).fetchone()
+                    if not voucher:
+                        raise APIError(409,'VOUCHER_NOT_AVAILABLE','Voucher không hợp lệ, hết hạn hoặc đã sử dụng.')
+                    discount_amount=(svc['price']*voucher['discount_percent'])//100
+                final_price=max(0,svc['price']-discount_amount)
+                cur=c.execute('INSERT INTO bookings(user_id,service_id,business_id,booking_date,start_time,end_time,status,price) VALUES(?,?,?,?,?,?,?,?)',(user['id'],sid,svc['business_id'],date,start,end,booking_status,final_price)); bid=cur.lastrowid
+                if voucher:
+                    c.execute('''UPDATE membership_vouchers SET used_booking_id=?,used_at=?
+                                  WHERE id=?''',(bid,int(time.time()),voucher_id))
                 owner_id=c.execute('SELECT owner_id FROM businesses WHERE id=?',(svc['business_id'],)).fetchone()[0]
                 note='Hội viên được tự động xác nhận lịch đặt' if auto_program else 'Có lịch đặt mới'
                 notify(c,owner_id,note,f'Lịch đặt #{bid} được tạo với trạng thái {booking_status}.')
@@ -1447,14 +1489,20 @@ class Handler(BaseHTTPRequestHandler):
                 audit(c,user['id'],'booking_created','booking',bid,'service_id='+str(sid)+'; date='+date+'; start='+start+'; status='+booking_status)
                 c.commit()
             msg='Đặt lịch đã được tự động xác nhận nhờ quyền lợi hội viên.' if auto_program else 'Đã tạo yêu cầu đặt lịch.'
-            return self.send_json(201,{'success':True,'message':msg,'data':{'id':bid,'status':booking_status,'price':svc['price']}})
+            return self.send_json(201,{'success':True,'message':msg,'data':{
+                'id':bid,'status':booking_status,'price':final_price,
+                'original_price':svc['price'],'discount_amount':discount_amount,
+                'voucher_code':voucher['code'] if voucher else None}})
         if method=='POST' and p.startswith('/api/bookings/') and p.endswith('/cancel'):
             bid=self.int_parts(p,2)
             with connect() as c:
                 row=c.execute('SELECT * FROM bookings WHERE id=? AND user_id=?',(bid,user['id'])).fetchone()
                 if not row: raise APIError(404,'BOOKING_NOT_FOUND','Không tìm thấy lịch đặt.')
                 if row['status'] not in ('pending','confirmed'): raise APIError(409,'BOOKING_CANNOT_CANCEL','Lịch đặt không thể hủy ở trạng thái hiện tại.')
-                c.execute("UPDATE bookings SET status='cancelled' WHERE id=?",(bid,)); audit(c,user['id'],'booking_cancelled','booking',bid)
+                c.execute("UPDATE bookings SET status='cancelled' WHERE id=?",(bid,))
+                c.execute('''UPDATE membership_vouchers SET used_booking_id=NULL,used_at=NULL
+                             WHERE used_booking_id=?''',(bid,))
+                audit(c,user['id'],'booking_cancelled','booking',bid)
                 owner_id=c.execute('SELECT owner_id FROM businesses WHERE id=?',(row['business_id'],)).fetchone()[0]
                 notify(c,owner_id,'Khách hủy lịch',f'Lịch đặt #{bid} đã được khách hàng hủy.')
                 c.commit()
@@ -1464,19 +1512,58 @@ class Handler(BaseHTTPRequestHandler):
                 rows=[dict(r) for r in c.execute('SELECT action,entity_type,entity_id,details,created_at FROM audit_logs WHERE actor_id=? ORDER BY id DESC LIMIT 100',(user['id'],))]
             return self.send_json(200,{'success':True,'data':rows})
         if method=='GET' and p=='/api/memberships/me':
-            with connect() as c: rows=[dict(r) for r in c.execute('SELECT mp.*,b.name business_name,um.points,um.joined_at FROM membership_programs mp LEFT JOIN businesses b ON b.id=mp.business_id LEFT JOIN user_memberships um ON um.program_id=mp.id AND um.user_id=? WHERE mp.active=1',(user['id'],))]
+            with connect() as c:
+                rows=[dict(r) for r in c.execute('''SELECT mp.*,b.name business_name,
+                  um.points,um.joined_at,
+                  (SELECT COUNT(*) FROM membership_vouchers v
+                   WHERE v.user_id=? AND v.program_id=mp.id
+                     AND v.used_booking_id IS NULL AND v.expires_at>?) AS voucher_count
+                  FROM membership_programs mp
+                  JOIN businesses b ON b.id=mp.business_id
+                  LEFT JOIN user_memberships um ON um.program_id=mp.id AND um.user_id=?
+                  WHERE mp.active=1 AND b.status='active'
+                  ORDER BY mp.id DESC''',
+                  (user['id'],int(time.time()),user['id']))]
+            return self.send_json(200,{'success':True,'data':rows})
+        if method=='GET' and p=='/api/vouchers/me':
+            with connect() as c:
+                rows=[dict(r) for r in c.execute('''SELECT v.id,v.business_id,v.code,
+                        v.discount_percent,v.issued_at,v.expires_at,v.used_booking_id,
+                        b.name AS business_name,mp.name AS program_name
+                      FROM membership_vouchers v
+                      JOIN businesses b ON b.id=v.business_id
+                      JOIN membership_programs mp ON mp.id=v.program_id
+                      WHERE v.user_id=? ORDER BY v.issued_at DESC,v.id DESC''',(user['id'],))]
             return self.send_json(200,{'success':True,'data':rows})
         if method=='POST' and p.startswith('/api/memberships/') and p.endswith('/join'):
             pid=self.int_parts(p,2)
+            if pid<1: raise APIError(400,'INVALID_PROGRAM_ID','Chương trình không hợp lệ.')
             with connect() as c:
-                prog=c.execute('SELECT * FROM membership_programs WHERE id=? AND active=1',(pid,)).fetchone()
+                c.execute('BEGIN IMMEDIATE')
+                prog=c.execute('''SELECT mp.* FROM membership_programs mp
+                    JOIN businesses b ON b.id=mp.business_id
+                    WHERE mp.id=? AND mp.active=1 AND b.status='active' ''',(pid,)).fetchone()
                 if not prog: raise APIError(404,'PROGRAM_NOT_FOUND','Không tìm thấy chương trình hội viên.')
                 added=c.execute('INSERT OR IGNORE INTO user_memberships(user_id,program_id) VALUES(?,?)',(user['id'],pid)).rowcount
+                welcome_code=None
                 if added:
-                    notify(c,user['id'],'Đăng ký hội viên thành công',f'Bạn đã tham gia chương trình {prog["name"]}.')
+                    if prog['welcome_discount_percent']>0:
+                        welcome_code='SH'+secrets.token_hex(8).upper()
+                        now=int(time.time())
+                        c.execute('''INSERT INTO membership_vouchers(
+                            user_id,program_id,business_id,code,discount_percent,issued_at,expires_at)
+                            VALUES(?,?,?,?,?,?,?)''',
+                            (user['id'],pid,prog['business_id'],welcome_code,
+                             prog['welcome_discount_percent'],now,
+                             now+prog['voucher_valid_days']*86400))
+                    notify(c,user['id'],'Đăng ký hội viên thành công',
+                           f'Bạn đã tham gia {prog["name"]}.'+
+                           (f' Voucher chào mừng: {welcome_code}.' if welcome_code else ''))
                     audit(c,user['id'],'membership_joined','membership_program',pid)
                 c.commit()
-            return self.send_json(200,{'success':True,'message':'Đã tham gia chương trình hội viên.'})
+            message='Đã tham gia chương trình hội viên.' if added else 'Bạn đã là hội viên của chương trình này.'
+            return self.send_json(200,{'success':True,'message':message,
+                 'data':{'joined':bool(added),'voucher_code':welcome_code}})
         # Sprint 4: customer notification center (all operations scoped by user_id).
         if method=='GET' and p=='/api/notifications/unread-count':
             with connect() as c:
