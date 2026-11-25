@@ -1963,7 +1963,13 @@ class Handler(BaseHTTPRequestHandler):
             })
         if method=='GET' and p=='/api/admin/stats':
             self.admin(user)
-            with connect() as c: data={'users':c.execute('SELECT COUNT(*) FROM users WHERE is_admin=0').fetchone()[0],'pending_applications':c.execute("SELECT COUNT(*) FROM business_applications WHERE status='pending'").fetchone()[0],'businesses':c.execute('SELECT COUNT(*) FROM businesses').fetchone()[0],'bookings':c.execute('SELECT COUNT(*) FROM bookings').fetchone()[0]}
+            with connect() as c: data={'users':c.execute('SELECT COUNT(*) FROM users WHERE is_admin=0').fetchone()[0],
+                'pending_applications':c.execute("SELECT COUNT(*) FROM business_applications WHERE status='pending'").fetchone()[0],
+                'businesses':c.execute('SELECT COUNT(*) FROM businesses').fetchone()[0],
+                'bookings':c.execute('SELECT COUNT(*) FROM bookings').fetchone()[0],
+                'unique_members':c.execute('SELECT COUNT(DISTINCT user_id) FROM user_memberships').fetchone()[0],
+                'membership_enrollments':c.execute('SELECT COUNT(*) FROM user_memberships').fetchone()[0],
+                'vouchers_issued':c.execute('SELECT COUNT(*) FROM membership_vouchers').fetchone()[0]}
             return self.send_json(200,{'success':True,'data':data})
         if method=='GET' and p=='/api/admin/reports':
             self.admin(user)
@@ -2195,6 +2201,13 @@ class Handler(BaseHTTPRequestHandler):
                             JOIN selected b ON b.id = r.business_id
                             WHERE r.is_visible = 1
                             GROUP BY r.business_id
+                        ),
+                        member_stats AS (
+                            SELECT mp.business_id,COUNT(DISTINCT um.user_id) AS member_count
+                            FROM user_memberships um
+                            JOIN membership_programs mp ON mp.id=um.program_id
+                            JOIN selected b ON b.id=mp.business_id
+                            GROUP BY mp.business_id
                         )
                         SELECT
                             b.*,
@@ -2212,6 +2225,8 @@ class Handler(BaseHTTPRequestHandler):
                                 AS service_count,
                             COALESCE(r.review_count, 0)
                                 AS review_count,
+                            COALESCE(m.member_count, 0)
+                                AS member_count,
                             r.average_rating
                         FROM selected b
                         LEFT JOIN booking_stats bk
@@ -2220,6 +2235,8 @@ class Handler(BaseHTTPRequestHandler):
                             ON s.business_id = b.id
                         LEFT JOIN review_stats r
                             ON r.business_id = b.id
+                        LEFT JOIN member_stats m
+                            ON m.business_id = b.id
                         ORDER BY b.id DESC
                         ''',
                         [
