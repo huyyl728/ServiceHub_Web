@@ -550,7 +550,16 @@
           date.textContent = review.created_at || "";
 
           article.append(customer, rating, comment, date);
-
+          if (review.owner_reply) {
+            const reply = document.createElement("div");
+            reply.className = "application-notice";
+            const ownerName = document.createElement("strong");
+            ownerName.textContent = "Phản hồi từ " + (review.owner_reply_name || "chủ cơ sở");
+            const ownerText = document.createElement("p");
+            ownerText.textContent = review.owner_reply;
+            reply.append(ownerName, ownerText);
+            article.append(reply);
+          }
           list.append(article);
         });
 
@@ -971,6 +980,36 @@
       '<option value="">Chọn ngày trước</option>';
     setMessage($("#booking-message"), "");
     openModal("booking-modal");
+    await loadBookingVouchers(s.business_id);
+  }
+  let bookingVoucherOptions = [];
+  function updateBookingVoucherPrice() {
+    const price=Number(state.bookingService?.price || 0);
+    const selected=Number($("#booking-voucher").value || 0);
+    const voucher=bookingVoucherOptions.find(v=>Number(v.id)===selected);
+    const discount=voucher ? Math.floor(price*Number(voucher.discount_percent)/100) : 0;
+    $("#booking-price").textContent=price-discount===0 ? "0 ₫" : money(price-discount);
+    $("#booking-voucher-message").textContent=voucher
+      ? `Đã áp dụng ${Number(voucher.discount_percent)}% · Giảm ${money(discount)} · Voucher dùng một lần khi đặt lịch thành công.`
+      : "Chọn voucher còn hạn của cơ sở này (nếu có).";
+  }
+  async function loadBookingVouchers(businessId) {
+    const select=$("#booking-voucher");
+    select.innerHTML='<option value="">Không sử dụng voucher</option>';
+    bookingVoucherOptions=[];
+    if (!state.user) return;
+    try {
+      const {data}=await API.get("/api/vouchers/me");
+      if (Number(state.bookingService?.business_id)!==Number(businessId)) return;
+      bookingVoucherOptions=data.filter(v=>
+        Number(v.business_id)===Number(businessId) &&
+        v.used_booking_id===null && Number(v.expires_at)>Date.now()/1000);
+      select.innerHTML='<option value="">Không sử dụng voucher</option>'+
+        bookingVoucherOptions.map(v=>`<option value="${Number(v.id)}">Giảm ${Number(v.discount_percent)}% · ${esc(v.code)}</option>`).join("");
+      updateBookingVoucherPrice();
+    } catch(e) {
+      $("#booking-voucher-message").textContent="Không tải được voucher: "+e.message;
+    }
   }
   async function loadAvailability() {
     const form = $("#booking-form"),
@@ -1009,6 +1048,7 @@
         service_id: Number(f.elements.service_id.value),
         date: f.elements.date.value,
         start_time: f.elements.start_time.value,
+        voucher_id: f.elements.voucher_id.value ? Number(f.elements.voucher_id.value) : null,
       });
       closeModals();
       toast(r.message);
@@ -2159,6 +2199,7 @@
               ${esc(b.booking_count)} lịch đặt
               · ${esc(b.service_count)} dịch vụ
               · ${esc(b.review_count)} đánh giá
+              · ${esc(b.member_count)} hội viên
               · ${esc(adminRating(b.average_rating))}
             </small>
           </div>
@@ -2278,6 +2319,7 @@
         ["Chờ xác nhận", b.pending_count],
         ["Đã xác nhận", b.confirmed_count],
         ["Dịch vụ", b.service_count],
+        ["Hội viên", b.member_count],
         ["Lượt đánh giá", b.review_count],
         ["Điểm trung bình", adminRating(b.average_rating)],
       ];
@@ -2446,6 +2488,9 @@
         ["Cơ sở", stats.data.businesses],
         ["Hồ sơ chờ duyệt", stats.data.pending_applications],
         ["Lịch đặt", stats.data.bookings],
+        ["Người dùng đã tham gia hội viên", stats.data.unique_members],
+        ["Tổng lượt đăng ký hội viên", stats.data.membership_enrollments],
+        ["Voucher đã phát", stats.data.vouchers_issued],
       ]
         .map(
           (x) =>
@@ -2538,7 +2583,7 @@
     }
     try {
       const r = await API.post(`/api/memberships/${id}/join`, {});
-      toast(r.message);
+      toast(r.data?.voucher_code ? `${r.message} Đã nhận voucher ${r.data.voucher_code}.` : r.message);
       await loadProfile();
       const bid = $("#business-detail-title")?.dataset.businessId;
       if (bid) await openBusinessDetails(bid);
@@ -2700,6 +2745,7 @@
     });
 
     $("#booking-form").addEventListener("submit", submitBooking);
+    $("#booking-voucher").addEventListener("change", updateBookingVoucherPrice);
     $("#booking-form").elements.date.addEventListener(
       "change",
       loadAvailability,
