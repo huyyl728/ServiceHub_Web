@@ -8,6 +8,15 @@ from pathlib import Path
 import sqlite3, json, secrets, hashlib, hmac, os, mimetypes, traceback, logging, time, re, shlex
 from datetime import datetime, timedelta, timezone
 from contextlib import closing
+from email_verification import (
+    generate_otp,
+    hash_otp,
+    verify_otp,
+    send_otp_email,
+    OTP_EXPIRY,
+    MAX_ATTEMPTS,
+    RESEND_COOLDOWN
+)
 ROOT = Path(__file__).resolve().parent
 
 def load_local_env(path):
@@ -291,6 +300,11 @@ def seed():
             c.execute("ALTER TABLE membership_programs ADD COLUMN auto_approve_bookings INTEGER NOT NULL DEFAULT 0")
         if 'login_enabled' not in user_columns:
             c.execute('ALTER TABLE users ADD COLUMN login_enabled INTEGER NOT NULL DEFAULT 1')
+        if 'email_verified' not in user_columns:
+            c.execute(
+                'ALTER TABLE users ADD COLUMN email_verified '
+                'INTEGER DEFAULT NULL CHECK(email_verified IN (0,1))'
+            )
         c.commit()
     configure_admin()
 
@@ -358,7 +372,17 @@ class Handler(BaseHTTPRequestHandler):
             return None
         token_hash=hashlib.sha256(token.encode()).hexdigest()
         with connect() as c:
-            row=c.execute('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.login_enabled=1',(token_hash,now_iso())).fetchone()
+
+            row = c.execute(
+                '''SELECT u.* FROM sessions s
+                JOIN users u ON u.id = s.user_id
+                WHERE s.token_hash = ?
+                AND s.expires_at > ?
+                AND u.login_enabled = 1
+                AND (u.email_verified = 1 OR u.email_verified IS NULL)''',
+                (token_hash, now_iso())
+            ).fetchone()
+
         if not row:
             if required: raise APIError(401,'SESSION_INVALID','Phiên đăng nhập hết hạn hoặc không hợp lệ.')
             return None
@@ -564,21 +588,300 @@ class Handler(BaseHTTPRequestHandler):
         if method=='GET' and p=='/api/categories':
             with connect() as c: rows=[r[0] for r in c.execute("SELECT DISTINCT s.category FROM services s JOIN businesses b ON b.id=s.business_id WHERE s.active=1 AND b.status='active' ORDER BY s.category")]
             return self.send_json(200,{'success':True,'data':rows})
-        if method=='POST' and p=='/api/auth/register':
-            d=self.body(); name=str(d.get('name','')).strip(); email=str(d.get('email','')).strip().lower(); phone=str(d.get('phone','')).strip(); pw=str(d.get('password',''))
-            if len(name)<2 or '@' not in email or len(pw)<8: raise APIError(400,'VALIDATION_ERROR','Nhập họ tên hợp lệ, email hợp lệ và mật khẩu ít nhất 8 ký tự.')
-            if email in LEGACY_DEMO_EMAILS or email==ADMIN_EMAIL:
-                raise APIError(400,'EMAIL_RESERVED','Địa chỉ này không dùng để đăng ký. Vui lòng dùng email cá nhân của bạn.')
+
+        # API đăng ký tài khoản và gửi mã OTP
+        if method == 'POST' and p == '/api/auth/register':
+            d = self.body()
+            name = str(d.get('name', '')).strip()
+            email = str(d.get('email', '')).strip().lower()
+            phone = str(d.get('phone', '')).strip()
+            pw = str(d.get('password', ''))
+
+            if (
+                len(name) < 2
+                or len(email) > 254
+                or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email)
+                or len(pw) < 8
+            ):
+                raise APIError(
+                    400,
+                    'VALIDATION_ERROR',
+                    'Thông tin đăng ký không hợp lệ.'
+                )
+
+            if email in LEGACY_DEMO_EMAILS or email == ADMIN_EMAIL:
+                raise APIError(
+                    400,
+                    'EMAIL_RESERVED',
+                    'Địa chỉ email này không được dùng để đăng ký.'
+                )
+
+            code = generate_otp()
+            now = int(time.time())
+
             with connect() as c:
-                try: cur=c.execute('INSERT INTO users(name,email,phone,password_hash) VALUES(?,?,?,?)',(name,email,phone,hash_password(pw)))
-                except sqlite3.IntegrityError: raise APIError(409,'EMAIL_EXISTS','Email này đã được đăng ký.')
-                uid=cur.lastrowid; c.commit()
-            return self.login_user(uid)
-        if method=='POST' and p=='/api/auth/login':
-            d=self.body(); email=str(d.get('email','')).strip().lower(); pw=str(d.get('password',''))
-            with connect() as c: row=c.execute('SELECT * FROM users WHERE email=?',(email,)).fetchone()
-            if not row or not row['login_enabled'] or not verify_password(pw,row['password_hash']): raise APIError(401,'LOGIN_FAILED','Email hoặc mật khẩu không đúng.')
+                try:
+                    cur = c.execute(
+                        '''INSERT INTO users
+                        (name, email, phone, password_hash, email_verified)
+                        VALUES (?, ?, ?, ?, 0)''',
+                        (name, email, phone, hash_password(pw))
+                    )
+                except sqlite3.IntegrityError:
+                    raise APIError(
+                        409,
+                        'EMAIL_EXISTS',
+                        'Email này đã được đăng ký.'
+                    )
+
+                uid = cur.lastrowid
+
+                c.execute(
+                    '''INSERT INTO email_verifications
+                    (user_id, code_hash, expires_at, attempts, sent_at)
+                    VALUES (?, ?, ?, 0, ?)''',
+                    (
+                        uid,
+                        hash_otp(code, uid),
+                        now + OTP_EXPIRY,
+                        now
+                    )
+                )
+
+                c.commit()
+
+            try:
+                send_otp_email(email, code)
+            except Exception:
+                logging.warning('Không thể gửi email OTP.')
+                raise APIError(
+                    503,
+                    'EMAIL_SEND_FAILED',
+                    'Tài khoản đang chờ xác thực. Vui lòng thử gửi lại mã.'
+                )
+
+            return self.send_json(201, {
+                'success': True,
+                'message': 'Mã OTP đã được gửi đến email.',
+                'data': {
+                    'email': email,
+                    'requires_verification': True
+                }
+            })
+
+
+        # API đăng nhập và kiểm tra xác thực email
+        if method == 'POST' and p == '/api/auth/login':
+            d = self.body()
+            email = str(d.get('email', '')).strip().lower()
+            pw = str(d.get('password', ''))
+
+            with connect() as c:
+                row = c.execute(
+                    'SELECT * FROM users WHERE email=?',
+                    (email,)
+                ).fetchone()
+
+            if (
+                not row
+                or not row['login_enabled']
+                or not verify_password(pw, row['password_hash'])
+            ):
+                raise APIError(
+                    401,
+                    'LOGIN_FAILED',
+                    'Email hoặc mật khẩu không đúng.'
+                )
+
+            # Chặn tài khoản mới chưa xác thực email
+            if row['email_verified'] == 0:
+                raise APIError(
+                    403,
+                    'EMAIL_NOT_VERIFIED',
+                    'Vui lòng xác thực email trước khi đăng nhập.'
+                )
+
             return self.login_user(row['id'])
+
+        # API xác minh mã OTP qua email
+        if method == 'POST' and p == '/api/auth/verify-email':
+            d = self.body()
+            email = str(d.get('email', '')).strip().lower()
+            pw = str(d.get('password', ''))
+            code = str(d.get('code', '')).strip()
+
+            if not re.fullmatch(r'[0-9]{6}', code):
+                raise APIError(
+                    400,
+                    'INVALID_OTP',
+                    'Mã OTP phải gồm 6 chữ số.'
+                )
+
+            with connect() as c:
+                c.execute('BEGIN IMMEDIATE')
+
+                row = c.execute(
+                    'SELECT * FROM users WHERE email=?',
+                    (email,)
+                ).fetchone()
+
+                if (
+                    not row
+                    or not row['login_enabled']
+                    or not verify_password(pw, row['password_hash'])
+                ):
+                    raise APIError(
+                        401,
+                        'LOGIN_FAILED',
+                        'Email hoặc mật khẩu không đúng.'
+                    )
+
+                uid = row['id']
+
+                if row['email_verified'] != 0:
+                    raise APIError(
+                        409,
+                        'EMAIL_NOT_PENDING',
+                        'Tài khoản không cần xác thực.'
+                    )
+
+                otp = c.execute(
+                    'SELECT * FROM email_verifications WHERE user_id=?',
+                    (uid,)
+                ).fetchone()
+
+                if not otp or otp['expires_at'] <= int(time.time()):
+                    raise APIError(
+                        400,
+                        'OTP_EXPIRED',
+                        'Mã OTP đã hết hạn. Vui lòng gửi lại mã.'
+                    )
+
+                if otp['attempts'] >= MAX_ATTEMPTS:
+                    raise APIError(
+                        429,
+                        'OTP_ATTEMPTS_EXCEEDED',
+                        'Bạn đã nhập sai quá nhiều lần.'
+                    )
+
+                if not verify_otp(code, otp['code_hash'], uid):
+                    c.execute(
+                        '''UPDATE email_verifications
+                        SET attempts = attempts + 1
+                        WHERE user_id=?''',
+                        (uid,)
+                    )
+                    c.commit()
+
+                    raise APIError(
+                        400,
+                        'OTP_INCORRECT',
+                        'Mã OTP không chính xác.'
+                    )
+
+                c.execute(
+                    'UPDATE users SET email_verified=1 WHERE id=?',
+                    (uid,)
+                )
+
+                c.execute(
+                    'DELETE FROM email_verifications WHERE user_id=?',
+                    (uid,)
+                )
+
+                audit(c, uid, 'email_verified', 'user', uid)
+
+                c.commit()
+
+            return self.send_json(200, {
+                'success': True,
+                'message': 'Xác thực email thành công. Bạn có thể đăng nhập.'
+            })
+
+        # API gửi lại mã OTP
+        if method == 'POST' and p == '/api/auth/resend-code':
+            d = self.body()
+            email = str(d.get('email', '')).strip().lower()
+            pw = str(d.get('password', ''))
+
+            with connect() as c:
+                c.execute('BEGIN IMMEDIATE')
+
+                row = c.execute(
+                    'SELECT * FROM users WHERE email=?',
+                    (email,)
+                ).fetchone()
+
+                if (
+                    not row
+                    or not row['login_enabled']
+                    or not verify_password(pw, row['password_hash'])
+                ):
+                    raise APIError(
+                        401,
+                        'LOGIN_FAILED',
+                        'Email hoặc mật khẩu không đúng.'
+                    )
+
+                if row['email_verified'] != 0:
+                    raise APIError(
+                        409,
+                        'EMAIL_NOT_PENDING',
+                        'Tài khoản không cần xác thực.'
+                    )
+
+                uid = row['id']
+                now = int(time.time())
+
+                otp = c.execute(
+                    'SELECT * FROM email_verifications WHERE user_id=?',
+                    (uid,)
+                ).fetchone()
+
+                if otp and now - otp['sent_at'] < RESEND_COOLDOWN:
+                    raise APIError(
+                        429,
+                        'RESEND_TOO_SOON',
+                        'Vui lòng chờ 60 giây trước khi gửi lại mã.'
+                    )
+
+                code = generate_otp()
+
+                c.execute(
+                    '''INSERT INTO email_verifications
+                    (user_id, code_hash, expires_at, attempts, sent_at)
+                    VALUES (?, ?, ?, 0, ?)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        code_hash=excluded.code_hash,
+                        expires_at=excluded.expires_at,
+                        attempts=0,
+                        sent_at=excluded.sent_at''',
+                    (
+                        uid,
+                        hash_otp(code, uid),
+                        now + OTP_EXPIRY,
+                        now
+                    )
+                )
+
+                c.commit()
+
+            try:
+                send_otp_email(email, code)
+            except Exception:
+                logging.warning('Không thể gửi lại email OTP.')
+                raise APIError(
+                    503,
+                    'EMAIL_SEND_FAILED',
+                    'Không thể gửi mã. Vui lòng thử lại sau.'
+                )
+
+            return self.send_json(200, {
+                'success': True,
+                'message': 'Đã gửi mã OTP mới đến email.'
+            })
+
+
         if method=='POST' and p=='/api/auth/logout':
             user=self.auth()
             token=self.headers.get('Authorization','').removeprefix('Bearer ').strip()
@@ -1904,11 +2207,54 @@ class Handler(BaseHTTPRequestHandler):
     def int_parts(self,p,index):
         try: return int(p.strip('/').split('/')[index])
         except Exception: raise APIError(400,'INVALID_ID','ID không hợp lệ.')
-    def login_user(self,uid):
-        token=secrets.token_urlsafe(36); token_hash=hashlib.sha256(token.encode()).hexdigest(); expiry=(datetime.now(timezone.utc)+timedelta(hours=12)).isoformat(timespec='seconds')
+
+    def login_user(self, uid):
+        token = secrets.token_urlsafe(36)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        expiry = (
+            datetime.now(timezone.utc) + timedelta(hours=12)
+        ).isoformat(timespec='seconds')
+
         with connect() as c:
-            c.execute('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)',(token_hash,uid,expiry)); audit(c,uid,'login','session',uid); row=c.execute('SELECT id,name,email,phone,address,is_admin,created_at FROM users WHERE id=?',(uid,)).fetchone(); c.commit()
-        return self.send_json(200,{'success':True,'data':{'token':token,'user':dict(row)},'message':'Đăng nhập thành công.'})
+            c.execute('BEGIN IMMEDIATE')
+
+            row = c.execute(
+                '''SELECT id, name, email, phone, address,
+                is_admin, created_at
+                FROM users
+                WHERE id = ?
+                AND login_enabled = 1
+                AND (email_verified = 1 OR email_verified IS NULL)''',
+                (uid,)
+            ).fetchone()
+
+            if not row:
+                raise APIError(
+                    403,
+                    'LOGIN_NOT_ALLOWED',
+                    'Tài khoản chưa đủ điều kiện đăng nhập.'
+                )
+
+            c.execute(
+                '''INSERT INTO sessions
+                (token_hash, user_id, expires_at)
+                VALUES (?, ?, ?)''',
+                (token_hash, uid, expiry)
+            )
+
+            audit(c, uid, 'login', 'session', uid)
+            c.commit()
+
+        return self.send_json(200, {
+            'success': True,
+            'data': {
+                'token': token,
+                'user': dict(row)
+            },
+            'message': 'Đăng nhập thành công.'
+        })
+
+
 def seed_local_demo():
 
     # Chỉ chạy khi bật chế độ demo

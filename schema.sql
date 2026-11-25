@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE,
  phone TEXT DEFAULT '', address TEXT DEFAULT '', password_hash TEXT NOT NULL, is_admin INTEGER NOT NULL DEFAULT 0,
  login_enabled INTEGER NOT NULL DEFAULT 1 CHECK(login_enabled IN (0,1)),
+ email_verified INTEGER DEFAULT NULL CHECK(email_verified IN (0,1)),
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -109,3 +110,12 @@ ON reviews(user_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
 ON audit_logs(entity_type, entity_id, id DESC);
+-- Luu thong tin xac thuc email
+CREATE TABLE IF NOT EXISTS email_verifications (
+    user_id INTEGER PRIMARY KEY
+        REFERENCES users(id) ON DELETE CASCADE,
+    code_hash TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    sent_at INTEGER NOT NULL
+);
