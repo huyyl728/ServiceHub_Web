@@ -414,7 +414,13 @@
             const joined = state.profile?.memberships?.some(
               (x) => Number(x.program_id) === Number(m.id),
             );
-            return `<article class="business-membership"><div><b>${esc(m.name)}</b><p>${esc(m.description || "Chương trình hội viên riêng của cơ sở.")}</p><small>Điểm tích lũy: ${Number(m.points_per_currency || 1)} điểm cho mỗi đơn vị tiền theo quy định chương trình.</small></div>${joined ? '<span class="status-pill">Đã tham gia</span>' : `<button class="btn btn-light btn-small" data-join-membership="${m.id}">Đăng ký hội viên</button>`}</article>`;
+            return `<article class="business-membership"><div><b>${esc(m.name)}</b>
+              <p>${esc(m.description || "Chương trình hội viên riêng của cơ sở.")}</p>
+              <p>${esc(m.benefits || "Ưu đãi do cơ sở quy định.")}</p>
+              <small>• Tích ${Number(m.points_per_currency)} điểm / mỗi 1.000đ dịch vụ đã hoàn thành.<br>
+              • ${m.auto_approve_bookings ? "Lịch đặt được xác nhận tự động." : "Lịch đặt cần chủ cơ sở xác nhận."}<br>
+              • ${Number(m.welcome_discount_percent)>0 ? `Nhận voucher giảm ${Number(m.welcome_discount_percent)}% khi tham gia; hạn ${Number(m.voucher_valid_days)} ngày, dùng một lần tại cơ sở.` : "Chương trình hiện không tặng voucher chào mừng."}</small>
+              </div>${joined ? '<span class="status-pill">Đã tham gia</span>' : `<button class="btn btn-light btn-small" data-join-membership="${m.id}">Đăng ký hội viên</button>`}</article>`;
           })
           .join("") ||
         '<p class="muted">Quán chưa thiết lập chương trình hội viên.</p>';
@@ -544,7 +550,16 @@
           date.textContent = review.created_at || "";
 
           article.append(customer, rating, comment, date);
-
+          if (review.owner_reply) {
+            const reply = document.createElement("div");
+            reply.className = "application-notice";
+            const ownerName = document.createElement("strong");
+            ownerName.textContent = "Phản hồi từ " + (review.owner_reply_name || "chủ cơ sở");
+            const ownerText = document.createElement("p");
+            ownerText.textContent = review.owner_reply;
+            reply.append(ownerName, ownerText);
+            article.append(reply);
+          }
           list.append(article);
         });
 
@@ -965,6 +980,36 @@
       '<option value="">Chọn ngày trước</option>';
     setMessage($("#booking-message"), "");
     openModal("booking-modal");
+    await loadBookingVouchers(s.business_id);
+  }
+  let bookingVoucherOptions = [];
+  function updateBookingVoucherPrice() {
+    const price=Number(state.bookingService?.price || 0);
+    const selected=Number($("#booking-voucher").value || 0);
+    const voucher=bookingVoucherOptions.find(v=>Number(v.id)===selected);
+    const discount=voucher ? Math.floor(price*Number(voucher.discount_percent)/100) : 0;
+    $("#booking-price").textContent=price-discount===0 ? "0 ₫" : money(price-discount);
+    $("#booking-voucher-message").textContent=voucher
+      ? `Đã áp dụng ${Number(voucher.discount_percent)}% · Giảm ${money(discount)} · Voucher dùng một lần khi đặt lịch thành công.`
+      : "Chọn voucher còn hạn của cơ sở này (nếu có).";
+  }
+  async function loadBookingVouchers(businessId) {
+    const select=$("#booking-voucher");
+    select.innerHTML='<option value="">Không sử dụng voucher</option>';
+    bookingVoucherOptions=[];
+    if (!state.user) return;
+    try {
+      const {data}=await API.get("/api/vouchers/me");
+      if (Number(state.bookingService?.business_id)!==Number(businessId)) return;
+      bookingVoucherOptions=data.filter(v=>
+        Number(v.business_id)===Number(businessId) &&
+        v.used_booking_id===null && Number(v.expires_at)>Date.now()/1000);
+      select.innerHTML='<option value="">Không sử dụng voucher</option>'+
+        bookingVoucherOptions.map(v=>`<option value="${Number(v.id)}">Giảm ${Number(v.discount_percent)}% · ${esc(v.code)}</option>`).join("");
+      updateBookingVoucherPrice();
+    } catch(e) {
+      $("#booking-voucher-message").textContent="Không tải được voucher: "+e.message;
+    }
   }
   async function loadAvailability() {
     const form = $("#booking-form"),
@@ -1003,6 +1048,7 @@
         service_id: Number(f.elements.service_id.value),
         date: f.elements.date.value,
         start_time: f.elements.start_time.value,
+        voucher_id: f.elements.voucher_id.value ? Number(f.elements.voucher_id.value) : null,
       });
       closeModals();
       toast(r.message);
@@ -1089,9 +1135,11 @@
       $("#membership-list").innerHTML =
         m.data
           .map((x) => {
-            const benefits = x.benefits
-              ? `<p class="muted">Ưu đãi: ${esc(x.benefits)}</p>`
-              : "";
+            const benefits = `<p class="muted">${esc(x.benefits || "Ưu đãi hội viên theo từng cơ sở.")}</p>
+              <small>• ${Number(x.points_per_currency)} điểm / 1.000đ khi lịch hoàn thành
+              • ${x.auto_approve_bookings ? "Tự động xác nhận lịch" : "Chủ cơ sở xác nhận lịch"}
+              • ${Number(x.welcome_discount_percent)>0 ? `Voucher chào mừng ${Number(x.welcome_discount_percent)}%, hạn ${Number(x.voucher_valid_days)} ngày` : "Không có voucher chào mừng"}
+              </small>`;
 
             const action =
               x.points !== null
@@ -1109,6 +1157,19 @@
           })
           .join("") || '<p class="muted">Chưa có chương trình hội viên.</p>';
 
+      const voucherResponse = await API.get("/api/vouchers/me");
+      $("#voucher-list").innerHTML = voucherResponse.data.map((v) => {
+        const now = Math.floor(Date.now()/1000);
+        const used = v.used_booking_id !== null;
+        const expired = v.expires_at <= now;
+        const status = used ? "Đã sử dụng" : expired ? "Hết hạn" : "Có thể sử dụng";
+        return `<div class="membership-card">
+          <b>Giảm ${Number(v.discount_percent)}% · ${esc(v.business_name)}</b>
+          <p>Mã: <strong>${esc(v.code)}</strong></p>
+          <small>Hết hạn: ${new Date(v.expires_at*1000).toLocaleDateString("vi-VN")}</small>
+          <p class="muted">${status} · Dùng một lần khi đặt lịch tại cơ sở này</p>
+        </div>`;
+      }).join("") || '<p class="muted">Bạn chưa có voucher. Đăng ký hội viên tại một cơ sở để nhận ưu đãi chào mừng.</p>';
       updateAuthUI();
       await loadNotifications();
     } catch (e) {
@@ -1455,11 +1516,12 @@
       $("#business-banner-preview").innerHTML = b.banner_path
         ? `<img class="business-banner" src="${esc(b.banner_path)}" alt="Banner ${esc(b.name)}">`
         : "";
-      const [services, bookings, membership, members] = await Promise.all([
+      const [services, bookings, membership, members, reviews] = await Promise.all([
         API.get(`/api/owner/services?business_id=${state.businessId}`),
         API.get(`/api/owner/bookings?business_id=${state.businessId}`),
         API.get(`/api/owner/membership?business_id=${state.businessId}`),
         API.get(`/api/owner/members?business_id=${state.businessId}`),
+        API.get(`/api/owner/reviews?business_id=${state.businessId}`),
       ]);
       const mf = $("#owner-membership-form");
       for (const k of [
@@ -1467,12 +1529,16 @@
         "description",
         "benefits",
         "points_per_currency",
+        "welcome_discount_percent",
+        "voucher_valid_days",
       ])
         mf.elements[k].value =
           membership.data[k] ?? (k === "points_per_currency" ? 1 : "");
       mf.elements.auto_approve_bookings.checked =
         !!membership.data.auto_approve_bookings;
       mf.elements.active.checked = !!membership.data.active;
+      $("#owner-member-summary").textContent =
+        `Tổng số hội viên cơ sở: ${Number(membership.data.member_count)} · Đã phát ${Number(membership.data.vouchers_issued)} voucher`;
       $("#owner-member-list").innerHTML = members.data.length
         ? members.data
             .map(
@@ -1484,6 +1550,8 @@
       $("#owner-metrics").innerHTML = [
         ["Dịch vụ", services.data.filter((s) => s.active).length],
         ["Tổng lịch đặt", bookings.data.length],
+        ["Hội viên", Number(membership.data.member_count)],
+        ["Voucher đã phát", Number(membership.data.vouchers_issued)],
         [
           "Chờ xác nhận",
           bookings.data.filter((x) => x.status === "pending").length,
@@ -1506,6 +1574,17 @@
           )
           .join("") ||
         '<p class="muted">Chưa có dịch vụ. Thêm dịch vụ bằng biểu mẫu phía trên.</p>';
+      $("#owner-reviews").innerHTML = reviews.data.map((r) => `
+        <article class="booking-card">
+          <div><b>${esc(r.customer_name)} · ${Number(r.rating)}/5 ★</b>
+            <p>${esc(r.service_name)} · ${esc(r.comment || "Không có bình luận")}</p>
+            <small>${r.is_visible ? "Công khai" : "Đã bị Admin ẩn"}</small>
+            ${r.is_visible ? `<label>Phản hồi của chủ cơ sở
+              <textarea rows="2" maxlength="1000" data-owner-reply-text="${r.id}">${esc(r.owner_reply || "")}</textarea>
+              </label><button type="button" class="btn btn-outline btn-small"
+              data-owner-reply="${r.id}">${r.owner_reply ? "Cập nhật phản hồi" : "Trả lời"}</button>` : ""}
+          </div>
+        </article>`).join("") || '<p class="muted">Cơ sở chưa có đánh giá.</p>';
       $("#owner-bookings").innerHTML =
         bookings.data
           .map(
@@ -1543,6 +1622,8 @@
       description: f.elements.description.value,
       benefits: f.elements.benefits.value,
       points_per_currency: Number(f.elements.points_per_currency.value),
+      welcome_discount_percent: Number(f.elements.welcome_discount_percent.value),
+      voucher_valid_days: Number(f.elements.voucher_valid_days.value),
       auto_approve_bookings: f.elements.auto_approve_bookings.checked,
       active: f.elements.active.checked,
     };
@@ -1553,6 +1634,22 @@
       await loadOwner();
     } catch (err) {
       setMessage($("#owner-membership-message"), err.message, true);
+    }
+  }
+  async function saveOwnerReviewReply(id) {
+    const field = document.querySelector(`[data-owner-reply-text="${id}"]`);
+    if (!field) return;
+    const reply = field.value.trim();
+    if (!reply || reply.length>1000) {
+      toast("Phản hồi cần từ 1 đến 1000 ký tự.",true);
+      return;
+    }
+    try {
+      const response = await API.post(`/api/owner/reviews/${Number(id)}/reply`, {reply});
+      toast(response.message);
+      await loadOwner();
+    } catch (error) {
+      toast(error.message,true);
     }
   }
   async function saveService(e) {
@@ -2102,6 +2199,7 @@
               ${esc(b.booking_count)} lịch đặt
               · ${esc(b.service_count)} dịch vụ
               · ${esc(b.review_count)} đánh giá
+              · ${esc(b.member_count)} hội viên
               · ${esc(adminRating(b.average_rating))}
             </small>
           </div>
@@ -2221,6 +2319,7 @@
         ["Chờ xác nhận", b.pending_count],
         ["Đã xác nhận", b.confirmed_count],
         ["Dịch vụ", b.service_count],
+        ["Hội viên", b.member_count],
         ["Lượt đánh giá", b.review_count],
         ["Điểm trung bình", adminRating(b.average_rating)],
       ];
@@ -2389,6 +2488,9 @@
         ["Cơ sở", stats.data.businesses],
         ["Hồ sơ chờ duyệt", stats.data.pending_applications],
         ["Lịch đặt", stats.data.bookings],
+        ["Người dùng đã tham gia hội viên", stats.data.unique_members],
+        ["Tổng lượt đăng ký hội viên", stats.data.membership_enrollments],
+        ["Voucher đã phát", stats.data.vouchers_issued],
       ]
         .map(
           (x) =>
@@ -2481,7 +2583,7 @@
     }
     try {
       const r = await API.post(`/api/memberships/${id}/join`, {});
-      toast(r.message);
+      toast(r.data?.voucher_code ? `${r.message} Đã nhận voucher ${r.data.voucher_code}.` : r.message);
       await loadProfile();
       const bid = $("#business-detail-title")?.dataset.businessId;
       if (bid) await openBusinessDetails(bid);
@@ -2643,6 +2745,7 @@
     });
 
     $("#booking-form").addEventListener("submit", submitBooking);
+    $("#booking-voucher").addEventListener("change", updateBookingVoucherPrice);
     $("#booking-form").elements.date.addEventListener(
       "change",
       loadAvailability,
@@ -2685,6 +2788,10 @@
     $("#owner-business-select").addEventListener("change", (e) => {
       state.businessId = Number(e.target.value);
       loadOwner();
+    });
+    $("#owner-reviews").addEventListener("click", (event) => {
+      const button=event.target.closest("[data-owner-reply]");
+      if (button) saveOwnerReviewReply(button.dataset.ownerReply);
     });
     $("#owner-business-form").addEventListener("submit", saveBusinessProfile);
     $("#owner-membership-form").addEventListener("submit", saveOwnerMembership);

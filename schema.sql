@@ -34,16 +34,35 @@ CREATE TABLE IF NOT EXISTS bookings (
  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), service_id INTEGER NOT NULL REFERENCES services(id),
  business_id INTEGER NOT NULL REFERENCES businesses(id), booking_date TEXT NOT NULL, start_time TEXT NOT NULL,
  end_time TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', price INTEGER NOT NULL,
+ membership_points_awarded INTEGER NOT NULL DEFAULT 0 CHECK(membership_points_awarded IN (0,1)),
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS membership_programs (
  id INTEGER PRIMARY KEY AUTOINCREMENT, business_id INTEGER REFERENCES businesses(id) ON DELETE CASCADE,
- name TEXT NOT NULL, description TEXT DEFAULT '', points_per_currency INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1, benefits TEXT NOT NULL DEFAULT '', auto_approve_bookings INTEGER NOT NULL DEFAULT 0
+ name TEXT NOT NULL, description TEXT DEFAULT '', points_per_currency INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1, benefits TEXT NOT NULL DEFAULT '', auto_approve_bookings INTEGER NOT NULL DEFAULT 0,
+ welcome_discount_percent INTEGER NOT NULL DEFAULT 10 CHECK(welcome_discount_percent BETWEEN 0 AND 50),
+ voucher_valid_days INTEGER NOT NULL DEFAULT 30 CHECK(voucher_valid_days BETWEEN 1 AND 365)
 );
 CREATE TABLE IF NOT EXISTS user_memberships (
  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), program_id INTEGER NOT NULL REFERENCES membership_programs(id),
  points INTEGER NOT NULL DEFAULT 0, joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, program_id)
 );
+-- Voucher chào mừng cấp một lần cho từng lần đăng ký chương trình hội viên.
+CREATE TABLE IF NOT EXISTS membership_vouchers (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ program_id INTEGER NOT NULL REFERENCES membership_programs(id),
+ business_id INTEGER NOT NULL REFERENCES businesses(id),
+ code TEXT NOT NULL UNIQUE,
+ discount_percent INTEGER NOT NULL CHECK(discount_percent BETWEEN 1 AND 50),
+ issued_at INTEGER NOT NULL,
+ expires_at INTEGER NOT NULL,
+ used_booking_id INTEGER UNIQUE REFERENCES bookings(id),
+ used_at INTEGER,
+ UNIQUE(user_id, program_id)
+);
+CREATE INDEX IF NOT EXISTS idx_membership_vouchers_user ON membership_vouchers(user_id, business_id, expires_at);
+
 CREATE TABLE IF NOT EXISTS notifications (
  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), title TEXT NOT NULL,
  message TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -93,6 +112,15 @@ CREATE TABLE IF NOT EXISTS reviews (
 
     updated_at TEXT NOT NULL
         DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Một chủ cơ sở chỉ được lưu một phản hồi cho mỗi đánh giá.
+CREATE TABLE IF NOT EXISTS owner_review_replies (
+ review_id INTEGER PRIMARY KEY REFERENCES reviews(id) ON DELETE CASCADE,
+ owner_id INTEGER NOT NULL REFERENCES users(id),
+ reply TEXT NOT NULL CHECK(length(trim(reply)) BETWEEN 1 AND 1000),
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_reviews_business

@@ -597,7 +597,11 @@
                   </p>
                 </div>
               </div>
+              <p class="muted">Hội viên từng cơ sở được tích điểm khi hoàn thành lịch, có thể được xác nhận lịch tự động và nhận voucher chào mừng. Quyền lợi cụ thể do chủ cơ sở cấu hình.</p>
               <div id="membership-list" class="membership-grid"></div>
+              <h3>Voucher của tôi</h3>
+              <p class="muted">Voucher chỉ dùng một lần tại cơ sở phát hành và có ngày hết hạn.</p>
+              <div id="voucher-list" class="membership-grid" aria-live="polite"></div>
             </article>
           </div>
           <aside class="profile-side">
@@ -745,6 +749,14 @@
                     max="1000"
                     value="1"
                     required /></label
+                ><label
+                  >Giảm giá voucher chào mừng (%)<input
+                    name="welcome_discount_percent"
+                    type="number" min="0" max="50" value="10" required /></label
+                ><label
+                  >Hạn dùng voucher (ngày)<input
+                    name="voucher_valid_days"
+                    type="number" min="1" max="365" value="30" required /></label
                 ><label class="check-label"
                   ><input name="auto_approve_bookings" type="checkbox" /> Tự
                   động xác nhận lịch đặt cho hội viên</label
@@ -772,6 +784,7 @@
                   </p>
                 </div>
               </div>
+              <p id="owner-member-summary" class="muted">Tổng số hội viên: 0</p>
               <div
                 id="owner-member-list"
                 class="compact-list"
@@ -806,6 +819,15 @@
               <div id="business-banner-preview"></div>
             </article>
           </div>
+          <article class="panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Đánh giá và phản hồi của chủ cơ sở</h2>
+                <p class="muted">Trả lời đánh giá công khai thuộc cơ sở của bạn.</p>
+              </div>
+            </div>
+            <div id="owner-reviews" class="stack-list" aria-live="polite"></div>
+          </article>
           <article class="panel">
             <div class="panel-heading">
               <div>
@@ -1180,8 +1202,14 @@
               <option value="">Chọn ngày trước</option>
             </select></label
           >
+          <label>Voucher hội viên (nếu có)
+            <select name="voucher_id" id="booking-voucher">
+              <option value="">Không sử dụng voucher</option>
+            </select>
+          </label>
+          <small id="booking-voucher-message" class="muted">Chỉ voucher còn hạn của cơ sở này được áp dụng.</small>
           <div class="booking-price">
-            <span>Giá dịch vụ</span><strong id="booking-price">0 ₫</strong>
+            <span>Giá sau ưu đãi</span><strong id="booking-price">0 ₫</strong>
           </div>
           <button class="btn btn-dark btn-block" type="submit">
             Gửi yêu cầu đặt lịch
